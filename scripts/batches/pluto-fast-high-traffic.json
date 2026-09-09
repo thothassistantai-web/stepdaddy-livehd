@@ -1,0 +1,96 @@
+{
+  "batch": "03",
+  "label": "Pluto/FAST + high-traffic US majors",
+  "channels": [
+    {
+      "id": "iptv:aafe64e1d627",
+      "name": "BET Pluto TV",
+      "group": "pluto-fast"
+    },
+    {
+      "id": "iptv:4b70b037bc26",
+      "name": "Bloomberg TV+ (720p)",
+      "group": "pluto-fast"
+    },
+    {
+      "id": "iptv:e37b6f47a115",
+      "name": "FailArmy",
+      "group": "pluto-fast"
+    },
+    {
+      "id": "iptv:3a2418ad7f29",
+      "name": "Doctor Who Classic (720p)",
+      "group": "pluto-fast"
+    },
+    {
+      "id": "iptv:f35273b11fa2",
+      "name": "Hallmark Movies & More (720p)",
+      "group": "pluto-fast"
+    },
+    {
+      "id": "iptv:ec2f935d53f1",
+      "name": "NBC News NOW (720p)",
+      "group": "pluto-fast"
+    },
+    {
+      "id": "iptv:0c43e61acd9f",
+      "name": "Paramount Movie Channel",
+      "group": "pluto-fast"
+    },
+    {
+      "id": "iptv:27d834154a8c",
+      "name": "CSI: Crime Scene Investigation",
+      "group": "pluto-fast"
+    },
+    {
+      "id": "iptv:4b0df0e2cedb",
+      "name": "Star Trek",
+      "group": "pluto-fast"
+    },
+    {
+      "id": "iptv:afa6f2bce25a",
+      "name": "Pluto TV Movies",
+      "group": "pluto-fast"
+    },
+    {
+      "id": "44",
+      "name": "ESPN USA",
+      "group": "us-sports"
+    },
+    {
+      "id": "45",
+      "name": "ESPN2 USA",
+      "group": "us-sports"
+    },
+    {
+      "id": "303",
+      "name": "AMC USA",
+      "group": "us-ent"
+    },
+    {
+      "id": "307",
+      "name": "Bravo USA",
+      "group": "us-ent"
+    },
+    {
+      "id": "310",
+      "name": "Comedy Central",
+      "group": "us-ent"
+    },
+    {
+      "id": "313",
+      "name": "Discovery HD",
+      "group": "us-doc"
+    },
+    {
+      "id": "309",
+      "name": "CNBC USA",
+      "group": "us-news"
+    },
+    {
+      "id": "347",
+      "name": "Fox News",
+      "group": "us-news"
+    }
+  ]
+}

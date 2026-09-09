@@ -1,0 +1,607 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdgateway.duckdns.org/schemas/channel-audit.schema.json",
+  "title": "StepDaddyLiveHD Single-Channel Audit Record",
+  "description": "Gapless, comparable audit of one live channel for repair / rebuild / maintenance. Secrets (PIN, tokens, cookies) must never appear in instances of this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "audit_id",
+    "audited_at",
+    "gateway_base",
+    "channel_id",
+    "phases",
+    "identity",
+    "stream",
+    "playback",
+    "epg",
+    "metadata",
+    "ux",
+    "verdict",
+    "field_provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "audit_id": {
+      "type": "string",
+      "description": "Stable id for this run, e.g. audit-343-20260908T093000Z"
+    },
+    "audited_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "auditor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tool": { "type": "string" },
+        "tool_version": { "type": "string" },
+        "operator": {
+          "type": ["string", "null"],
+          "description": "Neutral handle only (never personal names in shared docs)."
+        },
+        "host": { "type": ["string", "null"] }
+      }
+    },
+    "gateway_base": {
+      "type": "string",
+      "description": "Public or local gateway origin, no auth material."
+    },
+    "channel_id": {
+      "type": "string",
+      "description": "Canonical gateway stream id."
+    },
+    "notes": {
+      "type": ["string", "null"]
+    },
+    "phases": {
+      "type": "object",
+      "description": "Completion flags for protocol phases.",
+      "additionalProperties": false,
+      "required": [
+        "identity",
+        "stream_probe",
+        "playback",
+        "epg",
+        "metadata",
+        "ux",
+        "verdict"
+      ],
+      "properties": {
+        "identity": { "$ref": "#/$defs/phaseStatus" },
+        "stream_probe": { "$ref": "#/$defs/phaseStatus" },
+        "playback": { "$ref": "#/$defs/phaseStatus" },
+        "epg": { "$ref": "#/$defs/phaseStatus" },
+        "metadata": { "$ref": "#/$defs/phaseStatus" },
+        "ux": { "$ref": "#/$defs/phaseStatus" },
+        "verdict": { "$ref": "#/$defs/phaseStatus" }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "channel_id": { "type": ["string", "null"] },
+        "display_name": { "type": ["string", "null"] },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "sibling_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Related gateway ids (e.g. regional duplicate feeds)."
+        },
+        "provider": { "type": ["string", "null"] },
+        "source": { "type": ["string", "null"] },
+        "group_title": { "type": ["string", "null"] },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "adult": { "type": ["boolean", "null"] },
+        "category_hints": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "playlist_index": {
+          "type": ["integer", "null"],
+          "description": "0-based order index from /channels/neighbors."
+        },
+        "playlist_number": {
+          "type": ["integer", "null"],
+          "description": "1-based playlist position (neighbors.number)."
+        },
+        "ui_channel_number": {
+          "type": ["integer", "null"],
+          "description": "HUMAN: on-device TiviMate / guide number if different from playlist_number."
+        },
+        "top_network_candidate": { "type": ["boolean", "null"] },
+        "favorites_flag": {
+          "type": ["boolean", "null"],
+          "description": "HUMAN: marked favorite on a specific device/profile."
+        },
+        "logo_url": { "type": ["string", "null"] },
+        "logo_http_status": { "type": ["integer", "null"] },
+        "logo_content_type": { "type": ["string", "null"] },
+        "logo_bytes": { "type": ["integer", "null"] },
+        "logo_load_ok": { "type": ["boolean", "null"] },
+        "dead_catalog_flag": { "type": ["boolean", "null"] },
+        "cdn_blocked_flag": { "type": ["boolean", "null"] },
+        "cdn_tos_blocked_flag": { "type": ["boolean", "null"] }
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "live_m3u8": { "type": ["string", "null"] },
+            "stream_m3u8": { "type": ["string", "null"] },
+            "content_proxy": { "type": ["string", "null"] },
+            "embed_page": { "type": ["string", "null"] },
+            "embed_m3u8": { "type": ["string", "null"] },
+            "tivimate_stream": { "type": ["string", "null"] },
+            "tv_page": { "type": ["string", "null"] },
+            "play_page": { "type": ["string", "null"] }
+          }
+        },
+        "proxy_mode": {
+          "type": ["string", "null"],
+          "enum": [
+            "content_proxy",
+            "direct_cdn",
+            "embed",
+            "tivimate_stream",
+            "supplement_direct",
+            "mixed",
+            "unknown",
+            null
+          ]
+        },
+        "upstream": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "referer_host": { "type": ["string", "null"] },
+            "embed_host": { "type": ["string", "null"] },
+            "cdn_host": { "type": ["string", "null"] },
+            "domain_family": { "type": ["string", "null"] },
+            "notes": { "type": ["string", "null"] }
+          }
+        },
+        "headers_needs": {
+          "type": "object",
+          "description": "High-level only — never store secret header values.",
+          "additionalProperties": false,
+          "properties": {
+            "user_agent_required": { "type": ["boolean", "null"] },
+            "referer_required": { "type": ["boolean", "null"] },
+            "origin_required": { "type": ["boolean", "null"] },
+            "cookie_required": { "type": ["boolean", "null"] },
+            "notes": { "type": ["string", "null"] }
+          }
+        },
+        "playlist": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "http_status": { "type": ["integer", "null"] },
+            "reachable": { "type": ["boolean", "null"] },
+            "kind": {
+              "type": ["string", "null"],
+              "enum": [
+                "hls_master",
+                "hls_media",
+                "mpeg_ts_direct",
+                "fmp4",
+                "embed_html",
+                "unknown",
+                null
+              ]
+            },
+            "target_duration_sec": { "type": ["number", "null"] },
+            "media_sequence": { "type": ["integer", "null"] },
+            "has_program_date_time": { "type": ["boolean", "null"] },
+            "has_ext_x_map": { "type": ["boolean", "null"] },
+            "has_endlist": { "type": ["boolean", "null"] },
+            "segment_count_sampled": { "type": ["integer", "null"] },
+            "segment_ext_hint": {
+              "type": ["string", "null"],
+              "description": ".ts / .m4s / unknown"
+            },
+            "bytes": { "type": ["integer", "null"] }
+          }
+        },
+        "abr_ladder": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/abrRung" }
+        },
+        "active_variant": { "$ref": "#/$defs/abrRung" },
+        "segment_sample": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "http_status": { "type": ["integer", "null"] },
+            "bytes": { "type": ["integer", "null"] },
+            "container": { "type": ["string", "null"] },
+            "mpegts_sync_ok": { "type": ["boolean", "null"] },
+            "mpegts_mod188_ok": { "type": ["boolean", "null"] },
+            "via_proxy": { "type": ["boolean", "null"] }
+          }
+        },
+        "codecs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "video_codec": { "type": ["string", "null"] },
+            "video_profile": { "type": ["string", "null"] },
+            "video_level": { "type": ["number", "null"] },
+            "audio_codec": { "type": ["string", "null"] },
+            "audio_profile": { "type": ["string", "null"] },
+            "pix_fmt": { "type": ["string", "null"] },
+            "has_b_frames": { "type": ["integer", "null"] },
+            "ffprobe_ok": { "type": ["boolean", "null"] },
+            "ffprobe_error": { "type": ["string", "null"] }
+          }
+        },
+        "picture": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "width": { "type": ["integer", "null"] },
+            "height": { "type": ["integer", "null"] },
+            "fps": { "type": ["number", "null"] },
+            "aspect_ratio": { "type": ["string", "null"] },
+            "scan_type": {
+              "type": ["string", "null"],
+              "enum": ["progressive", "interlaced", "unknown", null]
+            },
+            "bitrate_bps": { "type": ["integer", "null"] },
+            "avg_bitrate_bps": { "type": ["integer", "null"] }
+          }
+        },
+        "stream_status": {
+          "type": ["string", "null"],
+          "enum": [
+            "live",
+            "dead",
+            "http_403",
+            "http_404",
+            "http_4xx",
+            "http_5xx",
+            "timeout",
+            "cdn_blocked",
+            "cdn_tos_blocked",
+            "paint_death_risk",
+            "embed_ok",
+            "degraded",
+            "unknown",
+            null
+          ]
+        },
+        "status_detail": { "type": ["string", "null"] }
+      }
+    },
+    "playback": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "surfaces": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tv_mse": {
+              "type": "object",
+              "description": "Chrome / WebAPK /tv hls.js MSE path.",
+              "additionalProperties": false,
+              "properties": {
+                "status": { "$ref": "#/$defs/playbackSurfaceStatus" },
+                "notes": { "type": ["string", "null"] }
+              }
+            },
+            "play_page": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "status": { "$ref": "#/$defs/playbackSurfaceStatus" },
+                "notes": { "type": ["string", "null"] }
+              }
+            },
+            "embed_clappr": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "status": { "$ref": "#/$defs/playbackSurfaceStatus" },
+                "notes": { "type": ["string", "null"] }
+              }
+            },
+            "tivimate_exoplayer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "status": { "$ref": "#/$defs/playbackSurfaceStatus" },
+                "notes": { "type": ["string", "null"] }
+              }
+            },
+            "apk_native": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "status": { "$ref": "#/$defs/playbackSurfaceStatus" },
+                "notes": { "type": ["string", "null"] }
+              }
+            }
+          }
+        },
+        "decode_notes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mse_vs_exoplayer": { "type": ["string", "null"] },
+            "green_black_history": { "type": ["string", "null"] },
+            "paint_death_observed": {
+              "type": ["boolean", "null"],
+              "description": "HUMAN: visual / logcat confirmation of dead paint."
+            },
+            "lighter_variant_available": { "type": ["boolean", "null"] },
+            "single_1080_high_risk": {
+              "type": ["boolean", "null"],
+              "description": "Auto: single ABR rung, High profile, >=1080p → known MSE risk class."
+            }
+          }
+        },
+        "ffmpeg_frame": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": { "type": ["boolean", "null"] },
+            "path": { "type": ["string", "null"] },
+            "detail": { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
+    "epg": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tvg_id": { "type": ["string", "null"] },
+        "epg_source": {
+          "type": ["string", "null"],
+          "enum": [
+            "woftv",
+            "epgpw",
+            "pluto",
+            "xmltv",
+            "android_id_map",
+            "tvinsider",
+            "none",
+            "unknown",
+            null
+          ]
+        },
+        "match_method": { "type": ["string", "null"] },
+        "match_confidence": { "type": ["number", "null"] },
+        "epg_has_data": { "type": ["boolean", "null"] },
+        "epg_match_status": {
+          "type": ["string", "null"],
+          "enum": [
+            "api_only",
+            "title_plausible",
+            "visually_confirmed",
+            "mismatch_suspected",
+            null
+          ],
+          "description": "Auto+human confidence. Non-empty now/next alone is api_only — never treat as visually confirmed."
+        },
+        "daypart_hint": {
+          "type": ["string", "null"],
+          "description": "Auto: overnight|morning|daytime|evening|late from America/New_York wall clock."
+        },
+        "daypart_plausible": {
+          "type": ["boolean", "null"],
+          "description": "Auto: whether now_title fits expected US daypart (catches false-UTC / wrong feed)."
+        },
+        "now_title": { "type": ["string", "null"] },
+        "now_start": { "type": ["string", "null"] },
+        "now_stop": { "type": ["string", "null"] },
+        "next_title": { "type": ["string", "null"] },
+        "schedule_events_sampled": { "type": ["integer", "null"] },
+        "timezone_notes": { "type": ["string", "null"] },
+        "region_hint": { "type": ["string", "null"] },
+        "language_hint": { "type": ["string", "null"] },
+        "language_confirmed": {
+          "type": ["string", "null"],
+          "description": "HUMAN: language heard / seen on screen."
+        },
+        "visual_epg_match": {
+          "type": ["string", "null"],
+          "enum": [
+            "match",
+            "partial",
+            "mismatch",
+            "bumper_ad",
+            "unverifiable",
+            "not_checked",
+            null
+          ],
+          "description": "HUMAN: EPG title vs on-screen content."
+        },
+        "visual_epg_notes": {
+          "type": ["string", "null"],
+          "description": "HUMAN"
+        },
+        "wrong_feed_suspect": {
+          "type": ["boolean", "null"],
+          "description": "Auto daypart fail and/or HUMAN / crossmatch tooling."
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title_now_playing": {
+          "type": ["string", "null"],
+          "description": "Stream/media-session title if distinct from EPG."
+        },
+        "media_session_title": {
+          "type": ["string", "null"],
+          "description": "HUMAN: notification / lock-screen title."
+        },
+        "neighbors": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prev_id": { "type": ["string", "null"] },
+            "prev_name": { "type": ["string", "null"] },
+            "next_id": { "type": ["string", "null"] },
+            "next_name": { "type": ["string", "null"] }
+          }
+        },
+        "last_verified_at": { "type": ["string", "null"], "format": "date-time" },
+        "verified_by": {
+          "type": ["string", "null"],
+          "description": "Neutral tool or operator label."
+        },
+        "prior_incidents": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "ux": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mobile_tv_path_notes": { "type": ["string", "null"] },
+        "tivimate_path_notes": { "type": ["string", "null"] },
+        "guide_search_name_ok": {
+          "type": ["boolean", "null"],
+          "description": "HUMAN: searchable under expected name."
+        },
+        "icon_recognizable": {
+          "type": ["boolean", "null"],
+          "description": "HUMAN"
+        },
+        "group_placement_ok": {
+          "type": ["boolean", "null"],
+          "description": "HUMAN: category/group placement correct."
+        },
+        "numbering_confusion_risk": {
+          "type": ["boolean", "null"],
+          "description": "Auto/HUMAN: playlist number diverges from common TiviMate UI number."
+        }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["health", "severity"],
+      "properties": {
+        "health": {
+          "type": "string",
+          "enum": [
+            "healthy",
+            "degraded",
+            "broken",
+            "epg_only_issue",
+            "client_path_issue",
+            "unknown"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low", "info", "none"]
+        },
+        "summary": { "type": ["string", "null"] },
+        "repair_actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "severity"],
+            "properties": {
+              "action": { "type": "string" },
+              "severity": {
+                "type": "string",
+                "enum": ["critical", "high", "medium", "low", "info"]
+              },
+              "owner": {
+                "type": ["string", "null"],
+                "enum": ["gateway", "epg", "client", "upstream", "operator", null]
+              },
+              "auto_suggested": { "type": "boolean" }
+            }
+          }
+        },
+        "blind_spots_remaining": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Human-only checks still open."
+        }
+      }
+    },
+    "field_provenance": {
+      "type": "object",
+      "description": "Maps major field groups to auto | human | mixed | skipped.",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["auto", "human", "mixed", "skipped"]
+      }
+    },
+    "raw_refs": {
+      "type": "object",
+      "description": "Non-secret local artifact paths for this audit run.",
+      "additionalProperties": false,
+      "properties": {
+        "playlist_sample_path": { "type": ["string", "null"] },
+        "segment_sample_path": { "type": ["string", "null"] },
+        "frame_path": { "type": ["string", "null"] },
+        "report_path": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "$defs": {
+    "phaseStatus": {
+      "type": "string",
+      "enum": ["complete", "partial", "skipped", "failed"]
+    },
+    "playbackSurfaceStatus": {
+      "type": ["string", "null"],
+      "enum": [
+        "ok",
+        "fail",
+        "degraded",
+        "untested",
+        "n_a",
+        null
+      ]
+    },
+    "abrRung": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bandwidth_bps": { "type": ["integer", "null"] },
+        "avg_bandwidth_bps": { "type": ["integer", "null"] },
+        "resolution": { "type": ["string", "null"] },
+        "width": { "type": ["integer", "null"] },
+        "height": { "type": ["integer", "null"] },
+        "frame_rate": { "type": ["number", "null"] },
+        "codecs": { "type": ["string", "null"] },
+        "uri_kind": {
+          "type": ["string", "null"],
+          "enum": ["content_proxy", "direct_cdn", "relative", "unknown", null]
+        }
+      }
+    }
+  }
+}

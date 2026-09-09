@@ -1,0 +1,17 @@
+#EXTM3U
+#EXT-X-TARGETDURATION:5
+#EXT-X-VERSION:3
+#EXT-X-MEDIA-SEQUENCE:33169
+#EXT-X-PROGRAM-DATE-TIME:2026-09-08T17:07:19.009Z
+#EXTINF:4.104,
+https://sdgateway.duckdns.org/content/{token}
+#EXTINF:4.088,
+https://sdgateway.duckdns.org/content/{token}
+#EXTINF:4.104,
+https://sdgateway.duckdns.org/content/{token}
+#EXTINF:4.087,
+https://sdgateway.duckdns.org/content/{token}
+#EXTINF:4.104,
+https://sdgateway.duckdns.org/content/{token}
+#EXTINF:4.088,
+https://sdgateway.duckdns.org/content/{token}

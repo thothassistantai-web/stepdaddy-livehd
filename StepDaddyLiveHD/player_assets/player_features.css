@@ -1,0 +1,1774 @@
+/* Gateway UX features: HLS chrome, CW, party, subs, QR */
+.vod-card .cw-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+  background: rgba(255,255,255,.18); overflow: hidden; border-radius: 0 0 6px 6px;
+}
+.vod-card .cw-bar > i {
+  display: block; height: 100%; width: 0; background: #60a5fa;
+}
+.vod-poster-wrap { position: relative; }
+
+.hls-chrome {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 12;
+  padding: 10px 14px 14px; pointer-events: none;
+  background: linear-gradient(transparent, rgba(0,0,0,.78));
+  opacity: 0; visibility: hidden;
+  transition: opacity .2s ease, visibility .2s ease;
+}
+.trailer-layer.hls-mode.has-hls-chrome .hls-chrome,
+.trailer-layer.hls-mode .hls-chrome.show,
+.trailer-layer.hls-mode .hls-chrome.pinned {
+  opacity: 1; visibility: visible; pointer-events: auto;
+}
+.trailer-layer:not(.hls-mode) .hls-chrome {
+  opacity: 0 !important; visibility: hidden !important; pointer-events: none !important;
+}
+.hls-chrome-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hls-chrome button, .hls-chrome .hls-time {
+  border: 0; background: rgba(255,255,255,.1); color: #fff;
+  border-radius: 8px; padding: 8px 10px; font: 600 12px/1 system-ui,sans-serif;
+  cursor: pointer;
+}
+.hls-chrome button:hover { background: rgba(255,255,255,.18); }
+.hls-chrome .hls-scrub {
+  flex: 1; min-width: 80px; accent-color: #60a5fa; height: 4px; cursor: pointer;
+}
+.hls-chrome .hls-time { background: transparent; opacity: .85; min-width: 92px; text-align: center; }
+.hls-chrome .hls-menus { position: relative; }
+.hls-menu {
+  display: none; position: absolute; bottom: 110%; right: 0; min-width: 160px;
+  max-height: 220px; overflow: auto; background: #12151c; border: 1px solid #333;
+  border-radius: 10px; padding: 6px; z-index: 20;
+}
+.hls-menu.open { display: block; }
+.hls-menu button {
+  display: block; width: 100%; text-align: left; margin: 2px 0;
+  background: transparent; font-weight: 500;
+}
+.hls-menu button.active { background: rgba(96,165,250,.22); }
+.hls-hotzone {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 28%;
+  z-index: 11; pointer-events: none;
+}
+.trailer-layer.hls-mode .hls-hotzone { pointer-events: auto; }
+
+.sd-sub-overlay {
+  position: absolute; left: 8%; right: 8%; bottom: 18%; z-index: 10;
+  text-align: center; pointer-events: none;
+  font: 700 var(--sd-sub-size, 22px)/1.35 system-ui,sans-serif;
+  color: var(--sd-sub-color, #fff);
+  text-shadow: 0 1px 2px #000, 0 0 8px #000;
+}
+.sd-sub-overlay[data-pos="top"] { top: 12%; bottom: auto; }
+.sd-sub-overlay[data-pos="middle"] { top: 45%; bottom: auto; }
+
+.sd-modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 90;
+  opacity: 0; pointer-events: none; transition: opacity .15s;
+}
+.sd-modal-backdrop.open { opacity: 1; pointer-events: auto; }
+.sd-modal {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%) scale(.96);
+  width: min(420px, 92vw); background: #12151c; border: 1px solid #2a3140;
+  border-radius: 16px; padding: 18px; z-index: 91; color: #eee;
+  opacity: 0; pointer-events: none; transition: .15s;
+}
+.sd-modal.open { opacity: 1; pointer-events: auto; transform: translate(-50%,-50%); }
+.sd-modal h3 { margin: 0 0 8px; font-size: 16px; }
+.sd-modal .row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.sd-modal input, .sd-modal select, .sd-modal button {
+  border-radius: 10px; border: 1px solid #333; background: #0b0d12; color: #fff;
+  padding: 10px 12px; font: 500 13px system-ui,sans-serif;
+}
+.sd-modal button.primary { background: #2563eb; border-color: #2563eb; font-weight: 700; cursor: pointer; }
+.sd-modal .qr-wrap { display: grid; place-items: center; margin: 12px 0; min-height: 180px; }
+.sd-modal .qr-wrap img, .sd-modal .qr-wrap canvas { width: 180px; height: 180px; border-radius: 8px; background: #fff; }
+.sd-modal .code { font: 800 28px/1.2 ui-monospace,monospace; letter-spacing: .12em; text-align: center; }
+
+
+/* Party chrome host (#videoArea): survive live playback; stack above trailerLayer (z≈59) */
+.party-chrome-host > .party-drawer,
+.party-chrome-host > .party-fab,
+.party-chrome-host > .party-av-overlay,
+.party-chrome-host > .party-toast,
+.party-chrome-host > .party-live-badge,
+.party-chrome-host > .party-rail-handle,
+.party-chrome-host > .party-jitsi-stage {
+  z-index: 62;
+}
+.video-area.party-chrome-host {
+  isolation: isolate;
+}
+
+/* Hold feedback for multifunction chrome controls */
+.pc-btn.pc-hold-active,
+.pc-center-hit.pc-hold-active,
+button.pc-hold-active {
+  transform: scale(1.08);
+  filter: brightness(1.25);
+  box-shadow: 0 0 0 2px rgba(96,165,250,.55);
+}
+
+/* Watch party drawer — cinema-integrated chrome; reactions stay in drawer.
+   z-index above embed/hls chrome (14) so rail header never sits under OSD. */
+.party-drawer {
+  position: absolute; right: 12px; top: 56px; bottom: 72px;
+  width: min(320px, 34vw);
+  max-width: calc(100% - 24px);
+  background: rgba(12,14,18,.88);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 16px; z-index: 24; display: none; flex-direction: column;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 12px 36px rgba(0,0,0,.28);
+  overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  box-sizing: border-box;
+  pointer-events: auto;
+  font-family: var(--player-font, "DM Sans", ui-sans-serif, system-ui, sans-serif);
+  color: var(--player-chrome-fg, #f4f4f5);
+}
+.party-drawer.open { display: flex; }
+.party-drawer.collapsed .chat,
+.party-drawer.collapsed .party-reactions,
+.party-drawer.collapsed .compose,
+.party-drawer.collapsed .party-host-bar,
+.party-drawer.collapsed .party-call-block,
+.party-drawer.collapsed .party-sb-tabbar,
+.party-drawer.collapsed .party-dual-top,
+.party-drawer.collapsed .party-tabs-hint,
+.party-drawer.collapsed .party-extras,
+.party-drawer.collapsed .members {
+  display: none;
+}
+.party-drawer.collapsed { bottom: auto; max-height: none; height: auto; }
+
+.party-drawer .ph {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.06);
+  min-height: 40px; flex-shrink: 0;
+}
+.party-title-wrap {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.party-drawer-name {
+  font-weight: 600; font-size: 13px; line-height: 1.25;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+  color: var(--player-chrome-fg, #f4f4f5);
+}
+.party-code-chip {
+  display: inline-flex; align-items: center;
+  font: 600 10px/1 ui-monospace, monospace; letter-spacing: .06em;
+  padding: 3px 8px; border-radius: 999px;
+  background: rgba(255,255,255,.08); color: var(--player-chrome-muted, rgba(244,244,245,.72));
+  border: 1px solid rgba(255,255,255,.1); flex-shrink: 0;
+}
+.party-public-badge {
+  font: 700 9px/1 var(--player-font, system-ui, sans-serif); text-transform: uppercase; letter-spacing: .04em;
+  padding: 3px 7px; border-radius: 999px;
+  background: color-mix(in srgb, var(--player-focus, #c4a574) 22%, transparent);
+  color: var(--player-accent-strong, #f5f3ee);
+  border: 1px solid color-mix(in srgb, var(--player-focus, #c4a574) 35%, transparent); flex-shrink: 0;
+}
+.party-icon-btn {
+  flex-shrink: 0; width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+  border-radius: 12px;
+  border: 0; background: rgba(255,255,255,.06);
+  color: var(--player-chrome-fg, #eee); font-size: 13px; cursor: pointer; line-height: 1;
+  display: inline-grid; place-items: center;
+  transition: background .15s ease;
+}
+.party-icon-btn:hover { background: rgba(255,255,255,.12); }
+
+.party-drawer .members {
+  padding: 5px 12px; font-size: 12px; color: var(--player-chrome-muted, #9aa);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+  overflow-x: hidden; overflow-y: auto; white-space: normal;
+  max-height: 4.8em; flex-shrink: 0; -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.party-drawer .members .party-member:not(:last-child)::after {
+  content: "·"; margin-left: 8px; opacity: .45; font-weight: 700;
+}
+.party-drawer .party-host-bar {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  padding: 4px 8px 6px; border-bottom: 1px solid rgba(255,255,255,.05); flex-shrink: 0;
+}
+.party-drawer .party-host-bar input[type="text"],
+.party-drawer .party-host-bar #partyRenameInput {
+  flex: 1 1 120px; min-width: 0; border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
+  background: rgba(0,0,0,.28); color: #fff; padding: 6px 10px; min-height: 32px;
+  font: 500 12px var(--player-font, system-ui, sans-serif);
+}
+.party-drawer .party-host-bar button {
+  border-radius: 10px; border: 0; background: rgba(255,255,255,.1); color: #fff;
+  padding: 6px 12px; min-height: 32px; font: 600 12px var(--player-font, system-ui, sans-serif); cursor: pointer;
+}
+.party-drawer .party-host-bar button:hover { background: rgba(255,255,255,.16); }
+.party-public-toggle {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 11px var(--player-font, system-ui, sans-serif);
+  color: var(--player-chrome-muted, #cbd5e1); cursor: pointer;
+  padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,.05);
+}
+
+.party-drawer .chat {
+  flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 12px; font-size: 13px;
+  -webkit-overflow-scrolling: touch; position: relative;
+}
+.party-drawer .chat .m { margin: 0 0 6px; word-break: break-word; }
+.party-drawer .chat .n {
+  color: color-mix(in srgb, var(--player-focus, #c4a574) 70%, #fff);
+  font-weight: 600;
+}
+
+.party-drawer .party-reactions {
+  position: static; transform: none; left: auto; bottom: auto;
+  display: flex; flex-wrap: wrap; gap: 2px; align-items: center;
+  padding: 4px 6px; margin: 0; border-top: 1px solid rgba(255,255,255,.05);
+  background: transparent; border-radius: 0; z-index: auto;
+  flex-shrink: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+.party-drawer .party-reactions button {
+  border: 0; background: transparent; font-size: 18px; cursor: pointer;
+  padding: 4px; line-height: 1; flex: 0 0 auto;
+  min-width: 36px; min-height: 36px; border-radius: 10px;
+  transition: background .15s ease;
+}
+.party-drawer .party-reactions button:hover { background: rgba(255,255,255,.08); }
+.party-drawer .compose {
+  display: flex; gap: 6px; padding: 6px 8px; align-items: center; flex-wrap: nowrap;
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(255,255,255,.06); flex-shrink: 0;
+  background: rgba(0,0,0,.18);
+}
+.party-drawer .compose input {
+  flex: 1; min-width: 0; border-radius: 12px; border: 1px solid rgba(255,255,255,.08);
+  background: rgba(0,0,0,.32); color: #fff; padding: 8px 12px; min-height: 36px; height: 36px;
+  font: 500 13px var(--player-font, system-ui, sans-serif); box-sizing: border-box;
+}
+.party-drawer .compose > button,
+.party-drawer .compose #partyChatSend {
+  flex-shrink: 0; border-radius: 12px; border: 0;
+  background: rgba(255,255,255,.12); color: var(--player-chrome-fg, #fff);
+  padding: 0 14px; height: 36px; min-height: 36px; min-width: 36px;
+  font: 600 12px var(--player-font, system-ui, sans-serif); cursor: pointer;
+  transition: background .15s ease;
+}
+.party-drawer .compose > button:hover,
+.party-drawer .compose #partyChatSend:hover { background: rgba(255,255,255,.18); }
+.party-drawer .compose .party-compose-tools {
+  display: flex; gap: 4px; flex-shrink: 0;
+}
+.party-drawer .compose .party-compose-tools .party-icon-btn {
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+}
+.party-mode-switch {
+  display: flex; gap: 2px; margin: 6px 8px; padding: 3px; flex-shrink: 0;
+  border: 0; border-radius: 12px; overflow-x: auto;
+  background: rgba(255,255,255,.06);
+}
+.party-mode-switch button {
+  flex: 1 1 auto; min-width: 48px; min-height: 32px; padding: 6px 8px;
+  border-radius: 10px; border: 0;
+  background: transparent; color: var(--player-chrome-muted, #9aa);
+  font: 600 11px/1.1 var(--player-font, system-ui, sans-serif);
+  cursor: pointer; white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
+}
+.party-mode-switch button.active {
+  background: rgba(255,255,255,.14); color: var(--player-chrome-fg, #e2e8f0);
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
+}
+.party-mode-switch button:disabled { opacity: .35; cursor: not-allowed; }
+.party-features-bar {
+  display: none; flex-wrap: wrap; gap: 4px; padding: 4px 8px 6px;
+  border-bottom: 1px solid rgba(255,255,255,.05); flex-shrink: 0;
+}
+.party-features-bar.show { display: flex; }
+.party-features-bar label {
+  display: inline-flex; align-items: center; gap: 4px;
+  font: 600 10px/1.2 var(--player-font, system-ui, sans-serif);
+  color: var(--player-chrome-muted, #cbd5e1);
+  min-height: 28px; padding: 3px 8px; border-radius: 999px;
+  background: rgba(255,255,255,.05); cursor: pointer;
+  border: 1px solid transparent;
+}
+.party-features-bar label:has(input:checked) {
+  background: color-mix(in srgb, var(--player-focus, #c4a574) 18%, transparent);
+  border-color: color-mix(in srgb, var(--player-focus, #c4a574) 28%, transparent);
+  color: var(--player-chrome-fg, #e2e8f0);
+}
+.party-features-bar input { margin: 0; accent-color: var(--player-focus, #c4a574); }
+.party-drawer .chat .m.party-msg-gif img {
+  display: block; max-width: 100%; max-height: 140px; border-radius: 10px; margin-top: 4px;
+  cursor: pointer; object-fit: contain; background: #0b0d12;
+}
+.party-drawer .chat .m.party-msg-voice {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.party-drawer .chat .m.party-msg-voice audio {
+  width: 100%; max-width: 220px; height: 36px; margin-top: 2px;
+}
+.party-gif-picker {
+  display: none; flex-direction: column; gap: 6px; padding: 8px;
+  border-top: 1px solid rgba(255,255,255,.08); max-height: 180px; overflow: auto;
+  background: rgba(8,10,14,.96); flex-shrink: 0;
+}
+.party-gif-picker.open { display: flex; }
+.party-gif-picker .party-gif-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+}
+.party-gif-picker .party-gif-grid button {
+  border: 0; padding: 0; border-radius: 8px; overflow: hidden; cursor: pointer;
+  background: #0b0d12; min-height: 56px;
+}
+.party-gif-picker .party-gif-grid img { width: 100%; height: 56px; object-fit: cover; display: block; }
+.party-jitsi-stage {
+  display: none; position: absolute; z-index: 16;
+  border: 1px solid rgba(255,255,255,.12); border-radius: 12px;
+  overflow: hidden; background: #0b0d12;
+}
+.party-jitsi-stage.open { display: block; }
+.party-jitsi-stage iframe { width: 100%; height: 100%; border: 0; }
+#videoArea.party-layout-hulu .party-jitsi-stage.open.hybrid,
+#trailerLayer.party-layout-hulu .party-jitsi-stage.open.hybrid,
+#videoArea.party-layout-rave .party-jitsi-stage.open.hybrid,
+#trailerLayer.party-layout-rave .party-jitsi-stage.open.hybrid{
+  left: 8px; bottom: 8px; width: min(280px, 42%); height: min(180px, 36%);
+}
+#videoArea.party-av-full .party-jitsi-stage.open,
+  #trailerLayer.party-av-full .party-jitsi-stage.open{
+  inset: 8px; width: auto; height: auto; border-radius: 0;
+}
+#videoArea.party-layout-hulu.party-av-full .party-jitsi-stage.open,
+  #trailerLayer.party-layout-hulu.party-av-full .party-jitsi-stage.open{
+  right: clamp(260px, 32vw, 360px); left: 8px; top: 8px; bottom: 8px; width: auto; height: auto;
+}
+#videoArea.party-layout-rave.party-av-full .party-jitsi-stage.open,
+  #trailerLayer.party-layout-rave.party-av-full .party-jitsi-stage.open{
+  left: 8px; right: 8px; top: 8px; bottom: calc(45% + 8px + env(safe-area-inset-bottom, 0px));
+  width: auto; height: auto;
+}
+
+/* Floating AV overlay (built-in WebRTC default; Jitsi optional) */
+.party-av-overlay {
+  display: none; position: absolute; z-index: 18;
+  left: 12px; top: 12px; width: 280px; height: 200px;
+  border: 1px solid rgba(255,255,255,.12); border-radius: 16px;
+  background: rgba(8,10,14,.82); overflow: hidden;
+  box-shadow: 0 12px 32px rgba(0,0,0,.4);
+  transition:
+    opacity .35s ease,
+    width .36s cubic-bezier(.22,.68,0,1.1),
+    height .36s cubic-bezier(.22,.68,0,1.1),
+    border-radius .36s ease,
+    box-shadow .36s ease,
+    background .36s ease,
+    border-color .36s ease;
+  touch-action: none;
+  pointer-events: auto;
+  font-family: var(--player-font, "DM Sans", system-ui, sans-serif);
+}
+.party-av-overlay.open { display: flex; flex-direction: column; }
+.party-av-overlay.idle,
+.party-av-overlay.party-av-idle {
+  /* Idle circle: video-only bubble (see .party-av-idle rules) */
+  opacity: 1;
+}
+.party-av-chrome {
+  display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative;
+}
+.party-av-header {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; cursor: grab; user-select: none;
+  background: rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.06);
+  min-height: 32px;
+}
+.party-av-header:active { cursor: grabbing; }
+.party-av-title { font: 600 12px/1.2 var(--player-font, system-ui, sans-serif); color: var(--player-chrome-fg, #e2e8f0); }
+.party-av-provider-chip {
+  margin-left: auto; font: 600 10px/1 var(--player-font, system-ui, sans-serif);
+  color: var(--player-chrome-muted, #94a3b8);
+  padding: 3px 7px; border-radius: 999px; background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.08);
+}
+.party-av-note {
+  flex-shrink: 0; padding: 4px 10px; font: 600 10px/1.3 var(--player-font, system-ui, sans-serif);
+  color: #fbbf24; background: rgba(251,191,36,.1);
+}
+.party-av-stage {
+  flex: 1; min-height: 0; display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: 4px; padding: 6px; background: #0b0d12; overflow: auto;
+}
+.party-av-stage.jitsi { display: block; padding: 0; }
+.party-av-stage.jitsi iframe { width: 100%; height: 100%; border: 0; }
+.party-av-tile {
+  position: relative; border-radius: 10px; overflow: hidden;
+  background: #111827; min-height: 72px;
+}
+.party-av-tile video {
+  width: 100%; height: 100%; object-fit: cover; display: block; background: #0b0d12;
+  min-height: 72px;
+}
+.party-av-tile.audio-only video { object-fit: contain; opacity: .35; }
+.party-av-tile.audio-only::after {
+  content: "🎙"; position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center; font-size: 22px; pointer-events: none;
+}
+.party-av-label {
+  position: absolute; left: 4px; bottom: 4px; padding: 2px 6px;
+  border-radius: 6px; background: rgba(0,0,0,.55); color: #fff;
+  font: 600 10px/1.2 var(--player-font, system-ui, sans-serif); max-width: 90%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.party-av-controls {
+  flex-shrink: 0; display: flex; gap: 6px; justify-content: center;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  background: rgba(0,0,0,.28); border-top: 1px solid rgba(255,255,255,.06);
+}
+.party-av-btn {
+  width: 36px; height: 36px; border-radius: 50%; border: 0;
+  background: rgba(255,255,255,.1); color: #fff; font-size: 14px; cursor: pointer;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.party-av-btn.off { background: rgba(239,68,68,.4); }
+.party-av-btn.party-av-hangup { background: rgba(220,38,38,.88); }
+.party-av-resize {
+  position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px;
+  cursor: nwse-resize; z-index: 2;
+  background:
+    linear-gradient(135deg, transparent 55%, rgba(255,255,255,.55) 55%, rgba(255,255,255,.55) 65%, transparent 65%),
+    linear-gradient(135deg, transparent 70%, rgba(255,255,255,.45) 70%, rgba(255,255,255,.45) 80%, transparent 80%);
+}
+.party-av-provider-row,
+.party-av-provider-host {
+  flex-shrink: 0; padding: 2px 8px 6px;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.party-av-provider-label {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font: 600 11px/1.2 var(--player-font, system-ui, sans-serif);
+  color: var(--player-chrome-muted, #94a3b8);
+}
+.party-av-provider-label select,
+#sdPartyAvProvider {
+  flex: 0 0 auto; max-width: 160px; min-height: 30px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.1); background: rgba(0,0,0,.32); color: #e2e8f0;
+  font: 600 11px var(--player-font, system-ui, sans-serif); padding: 4px 6px;
+}
+
+/* Idle circle bubble — video only, no chrome */
+.party-av-overlay.party-av-idle {
+  border-radius: 50%;
+  border-color: transparent;
+  background: #0b0d12;
+  box-shadow: 0 10px 28px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.08);
+  cursor: grab;
+}
+.party-av-overlay.party-av-idle:active { cursor: grabbing; }
+.party-av-overlay.party-av-idle .party-av-header,
+.party-av-overlay.party-av-idle .party-av-note,
+.party-av-overlay.party-av-idle .party-av-controls,
+.party-av-overlay.party-av-idle .party-av-resize,
+.party-av-overlay.party-av-idle .party-av-label,
+.party-av-overlay.party-av-idle .party-av-provider-chip {
+  display: none !important;
+}
+.party-av-overlay.party-av-idle .party-av-chrome {
+  position: absolute; inset: 0;
+}
+.party-av-overlay.party-av-idle .party-av-stage {
+  position: absolute; inset: 0;
+  display: block; padding: 0; gap: 0; overflow: hidden;
+  background: #0b0d12; border-radius: 50%;
+}
+.party-av-overlay.party-av-idle .party-av-tile {
+  display: none;
+  position: absolute; inset: 0;
+  border-radius: 0; min-height: 0;
+}
+.party-av-overlay.party-av-idle .party-av-tile.party-av-idle-focus {
+  display: block;
+}
+.party-av-overlay.party-av-idle .party-av-tile video {
+  width: 100%; height: 100%; min-height: 0;
+  object-fit: cover; opacity: .92;
+}
+.party-av-overlay.party-av-idle .party-av-tile.audio-only::after {
+  font-size: 28px;
+}
+.party-av-overlay.party-av-idle .party-av-stage.jitsi iframe {
+  width: 100%; height: 100%; object-fit: cover; pointer-events: none;
+}
+
+/* Confine overlay to video pane under hulu/rave (drawer takes rail) */
+#videoArea.party-layout-hulu .party-av-overlay.open,
+#trailerLayer.party-layout-hulu .party-av-overlay.open,
+#videoArea.party-layout-rave .party-av-overlay.open,
+#trailerLayer.party-layout-rave .party-av-overlay.open{
+  /* geometry set by JS; keep above video */
+  z-index: 18;
+}
+
+/* Zoom-style stage + filmstrip (landscape Voice/Video/Hybrid with peers) */
+.party-av-overlay.party-stage-mode {
+  border-radius: 0;
+  border: 0;
+  background: rgba(6, 8, 12, .55);
+  box-shadow: none;
+  transition:
+    opacity .3s ease,
+    top .36s cubic-bezier(.22,.68,0,1.05),
+    height .36s cubic-bezier(.22,.68,0,1.05),
+    background .3s ease;
+}
+.party-av-overlay.party-stage-mode .party-av-header {
+  padding: 4px 8px;
+  min-height: 28px;
+  background: rgba(0,0,0,.28);
+}
+.party-av-overlay.party-stage-mode .party-av-resize { display: none; }
+.party-av-overlay.party-stage-mode .party-av-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+}
+.party-av-overlay.party-stage-mode .party-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  background: #0b0d12;
+}
+.party-av-overlay.party-stage-mode .party-stage .party-av-tile {
+  flex: 1;
+  min-height: 0;
+  border-radius: 0;
+  width: 100%;
+  height: 100%;
+}
+.party-av-overlay.party-stage-mode .party-stage .party-av-tile video {
+  min-height: 0;
+  height: 100%;
+  object-fit: cover;
+}
+.party-av-overlay.party-stage-mode .party-filmstrip {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  height: clamp(72px, 18vh, 96px);
+  max-height: 28%;
+  background: rgba(0,0,0,.72);
+  border-top: 1px solid rgba(255,255,255,.1);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  scrollbar-width: thin;
+}
+.party-av-overlay.party-stage-mode .party-filmstrip .party-av-tile {
+  flex: 0 0 auto;
+  width: clamp(96px, 22vw, 140px);
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+  border-right: 1px solid rgba(255,255,255,.08);
+  cursor: pointer;
+  transition: outline .15s ease, opacity .15s ease;
+}
+.party-av-overlay.party-stage-mode .party-filmstrip .party-av-tile:focus-visible,
+.party-av-overlay.party-stage-mode .party-filmstrip .party-av-tile.party-focus-active {
+  outline: 2px solid #22c55e;
+  outline-offset: -2px;
+  z-index: 1;
+}
+.party-av-overlay.party-stage-mode .party-filmstrip .party-av-tile video {
+  min-height: 0;
+  height: 100%;
+  object-fit: cover;
+}
+.party-av-overlay.party-stage-mode .party-av-tile.party-content-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #1e293b, #0f172a);
+}
+.party-av-overlay.party-stage-mode .party-content-thumb {
+  font-size: 28px;
+  line-height: 1;
+  opacity: .9;
+}
+.party-av-overlay.party-stage-mode.party-stage-content-focus {
+  background: transparent;
+}
+.party-av-overlay.party-stage-mode.party-stage-content-focus .party-av-header,
+.party-av-overlay.party-stage-mode.party-stage-content-focus .party-av-note {
+  display: none !important;
+}
+.party-av-overlay.party-stage-mode.party-stage-content-focus .party-stage {
+  display: none;
+}
+.party-av-overlay.party-stage-mode.party-stage-content-focus .party-av-controls {
+  position: absolute;
+  right: 8px;
+  bottom: calc(100% + 6px);
+  background: rgba(0,0,0,.45);
+  border-radius: 999px;
+  border: 0;
+  padding: 4px 6px;
+}
+.party-av-overlay.party-stage-mode:not(.party-stage-content-focus) .party-av-controls {
+  padding-bottom: max(6px, env(safe-area-inset-bottom, 0px));
+}
+
+/* Docked stage fills video pane (gapless against rail) */
+#videoArea.party-layout-hulu .party-av-overlay.open.party-stage-mode,
+  #trailerLayer.party-layout-hulu .party-av-overlay.open.party-stage-mode{
+  left: 0 !important;
+  top: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  right: var(--party-rail-w, 0px) !important;
+  bottom: 0 !important;
+  border-radius: 0;
+  z-index: 17;
+}
+#videoArea.party-layout-hulu .party-av-overlay.open.party-stage-mode.party-stage-content-focus,
+  #trailerLayer.party-layout-hulu .party-av-overlay.open.party-stage-mode.party-stage-content-focus{
+  top: auto !important;
+  height: calc(clamp(72px, 18vh, 96px) + 44px + env(safe-area-inset-bottom, 0px)) !important;
+  background: transparent;
+  pointer-events: none;
+}
+#videoArea.party-layout-hulu .party-av-overlay.open.party-stage-mode.party-stage-content-focus .party-filmstrip,
+#trailerLayer.party-layout-hulu .party-av-overlay.open.party-stage-mode.party-stage-content-focus .party-filmstrip,
+#videoArea.party-layout-hulu .party-av-overlay.open.party-stage-mode.party-stage-content-focus .party-av-controls,
+#trailerLayer.party-layout-hulu .party-av-overlay.open.party-stage-mode.party-stage-content-focus .party-av-controls{
+  pointer-events: auto;
+}
+
+/* LIVE badge (FB Live style) */
+.party-live-badge {
+  display: none;
+  position: absolute;
+  z-index: 19;
+  left: max(10px, env(safe-area-inset-left, 0px));
+  top: max(10px, env(safe-area-inset-top, 0px));
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.party-live-badge.show { display: inline-flex; }
+.party-live-badge .party-live-pill {
+  background: #e11d48;
+  color: #fff;
+  font: 800 10px/1 var(--player-font, system-ui, sans-serif);
+  letter-spacing: .06em;
+  padding: 5px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+.party-live-badge .party-live-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0,0,0,.45);
+  color: #fff;
+  font: 600 11px/1 var(--player-font, system-ui, sans-serif);
+  padding: 5px 9px;
+  border-radius: 8px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Landscape edge handle when chat minimized */
+.party-rail-handle {
+  display: none;
+  position: absolute;
+  z-index: 25;
+  top: 50%;
+  right: max(0px, env(safe-area-inset-right, 0px));
+  transform: translateY(-50%);
+  width: 32px;
+  height: 72px;
+  border: 0;
+  border-radius: 10px 0 0 10px;
+  background: rgba(12,14,18,.88);
+  color: #e2e8f0;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: -4px 0 16px rgba(0,0,0,.35);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.party-rail-handle.show { display: inline-flex; }
+
+.party-fab {
+  display: none; position: absolute; right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: max(72px, calc(12px + env(safe-area-inset-bottom, 0px)));
+  width: 48px; height: 48px; min-width: 44px; min-height: 44px;
+  border-radius: 999px; border: 0; cursor: pointer;
+  background: rgba(0,0,0,.48); color: var(--player-chrome-fg, #fff); font-size: 20px;
+  z-index: 25;
+  box-shadow: 0 8px 28px rgba(0,0,0,.35);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  align-items: center; justify-content: center;
+  pointer-events: auto;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  transition: background .15s ease, transform .15s ease;
+}
+.party-fab:hover { background: rgba(0,0,0,.58); }
+.party-fab.show { display: inline-flex; }
+
+.party-float-emoji {
+  position: absolute; left: 50%; bottom: 40%; z-index: 15; font-size: 42px;
+  animation: partyPop 1.2s ease forwards; pointer-events: none;
+}
+.party-drawer .party-float-emoji,
+.party-drawer .chat .party-float-emoji {
+  position: absolute; font-size: 28px; z-index: 6; bottom: 18%;
+}
+@keyframes partyPop {
+  0% { opacity: 0; transform: translate(-50%, 20px) scale(.6); }
+  20% { opacity: 1; transform: translate(-50%, 0) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -80px) scale(1); }
+}
+.party-toast {
+  position: absolute; left: 50%; top: max(64px, env(safe-area-inset-top, 0px));
+  transform: translateX(-50%);
+  background: rgba(0,0,0,.75); color: #fff; padding: 10px 16px; border-radius: 999px;
+  font: 600 12px var(--player-font, system-ui, sans-serif); z-index: 16; display: none;
+  max-width: min(90vw, 360px); text-align: center;
+  pointer-events: none;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.3);
+}
+.party-toast.show { display: block; }
+.party-member { white-space: nowrap; display: inline-flex; align-items: center; }
+.party-kick {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; margin-left: 2px; padding: 0;
+  border-radius: 50%; border: 1px solid rgba(255,255,255,.2);
+  background: rgba(248,113,113,.15); color: #fca5a5; font-size: 12px; line-height: 1; cursor: pointer;
+}
+.party-kick:hover { background: rgba(248,113,113,.35); }
+
+/* Create / join modal extras */
+.sd-modal-party { width: min(440px, 94vw); max-height: min(88vh, 720px); overflow: auto; }
+.party-field-label { display: block; margin: 6px 0 4px; font: 600 12px system-ui,sans-serif; color: #9aa; }
+.party-public-check {
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 10px;
+  font: 500 12px/1.35 system-ui,sans-serif; color: #cbd5e1; cursor: pointer;
+}
+.party-public-check input { margin-top: 2px; }
+.party-public-section { margin-top: 14px; border-top: 1px solid rgba(255,255,255,.08); padding-top: 10px; }
+.party-public-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font: 700 12px system-ui,sans-serif; color: #9aa; margin-bottom: 8px;
+}
+.party-public-head button {
+  padding: 6px 10px !important; font-size: 12px !important;
+}
+.party-public-list { display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow: auto; }
+.party-public-card {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.03);
+}
+.party-public-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.party-public-meta strong {
+  font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.party-public-meta span { font-size: 11px; color: #9aa; }
+.party-public-card button { flex-shrink: 0; padding: 8px 12px !important; }
+.party-muted { margin: 0; font-size: 12px; color: #6b7280; }
+.party-created-name {
+  font: 700 14px/1.3 system-ui,sans-serif; text-align: center; margin: 4px 0 2px;
+  color: #e2e8f0; word-break: break-word;
+}
+
+/* -------------------------------------------------------------------------
+   Mobile portrait = Facebook Live–style full-bleed + translucent overlays
+   Default: video fills; chat stack + compose float over video (party-live-overlay).
+   Optional expand (party-live-expanded): solid bottom panel for heavy chat.
+   ------------------------------------------------------------------------- */
+@media (max-width: 720px) {
+  .party-fab {
+    bottom: max(16px, calc(12px + env(safe-area-inset-bottom, 0px)));
+    right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .party-drawer .party-drawer-name {
+    white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+
+  /* VOD overlay only — party chrome mounts on #videoArea for live */
+  #trailerLayer.show.party-layout-rave,
+  #trailerLayer.hls-mode.party-layout-rave,
+  #trailerLayer.embed-mode.party-layout-rave {
+    display: flex !important;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  /* Full-bleed video under translucent chat (FB Live) */
+  /* VOD overlay only — party chrome mounts on #videoArea for live */
+  #trailerLayer.show.party-layout-rave.party-live-overlay,
+  #trailerLayer.hls-mode.party-layout-rave.party-live-overlay,
+  #trailerLayer.embed-mode.party-layout-rave.party-live-overlay {
+    display: block !important;
+  }
+  .tv-root.party-layout-rave.party-live-overlay .bg-video {
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover;
+  }
+  .tv-root.party-layout-rave.party-live-overlay .bg-shade {
+    inset: 0 !important;
+  }
+  #videoArea.party-layout-rave.party-live-overlay .trailer-frame-wrap,
+  #trailerLayer.party-layout-rave.party-live-overlay .trailer-frame-wrap{
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    flex: none;
+  }
+  #videoArea.party-layout-rave.party-live-overlay .party-drawer.open,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-drawer.open{
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    margin: 0;
+    width: 100%;
+    max-width: none;
+    flex: none;
+    height: auto;
+    max-height: min(46vh, 420px);
+    min-height: 0;
+    border-radius: 0;
+    border: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,.55) 28%, rgba(0,0,0,.72));
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    padding-left: max(8px, env(safe-area-inset-left, 0px));
+    padding-right: max(8px, env(safe-area-inset-right, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    pointer-events: none;
+    z-index: 24;
+  }
+  #videoArea.party-layout-rave.party-live-overlay .party-drawer.open > *,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-drawer.open > *{
+    pointer-events: auto;
+  }
+  #videoArea.party-layout-rave.party-live-overlay .party-drawer .ph,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-drawer .ph,
+  #videoArea.party-layout-rave.party-live-overlay .party-mode-switch,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-mode-switch,
+  #videoArea.party-layout-rave.party-live-overlay .party-av-provider-host,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-av-provider-host,
+  #videoArea.party-layout-rave.party-live-overlay .party-features-bar,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-features-bar,
+  #videoArea.party-layout-rave.party-live-overlay .members,
+  #trailerLayer.party-layout-rave.party-live-overlay .members,
+  #videoArea.party-layout-rave.party-live-overlay .party-host-bar,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-host-bar{
+    background: transparent;
+    border-color: transparent;
+  }
+  #videoArea.party-layout-rave.party-live-overlay .party-drawer .ph,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-drawer .ph{
+    padding-top: 4px;
+    min-height: 36px;
+  }
+  #videoArea.party-layout-rave.party-live-overlay .party-drawer .chat,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-drawer .chat{
+    mask-image: linear-gradient(to bottom, transparent 0%, #000 18%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 18%);
+    max-height: 28vh;
+  }
+  #videoArea.party-layout-rave.party-live-overlay .party-drawer .chat .m,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-drawer .chat .m{
+    display: inline-block;
+    max-width: 88%;
+    margin: 0 0 6px;
+    padding: 6px 10px;
+    border-radius: 14px;
+    background: rgba(255,255,255,.16);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  #videoArea.party-layout-rave.party-live-overlay .party-drawer .compose,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-drawer .compose{
+    background: rgba(0,0,0,.28);
+    border-top: 0;
+    border-radius: 16px 16px 0 0;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  #videoArea.party-layout-rave.party-live-overlay .party-drawer .compose input,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-drawer .compose input{
+    background: rgba(255,255,255,.1);
+    border-color: transparent;
+  }
+  #videoArea.party-layout-rave.party-live-overlay .party-reactions,
+  #trailerLayer.party-layout-rave.party-live-overlay .party-reactions{
+    border-top: 0;
+    justify-content: flex-end;
+  }
+  #videoArea.party-layout-rave.party-live-overlay .hls-chrome,
+  #trailerLayer.party-layout-rave.party-live-overlay .hls-chrome,
+  #videoArea.party-layout-rave.party-live-overlay .embed-chrome,
+  #trailerLayer.party-layout-rave.party-live-overlay .embed-chrome,
+  #videoArea.party-layout-rave.party-live-overlay .vod-ep-chrome,
+  #trailerLayer.party-layout-rave.party-live-overlay .vod-ep-chrome{
+    bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+  #videoArea.party-layout-rave.party-live-overlay .hls-hotzone,
+  #trailerLayer.party-layout-rave.party-live-overlay .hls-hotzone,
+  #videoArea.party-layout-rave.party-live-overlay .vod-ep-hotzone,
+  #trailerLayer.party-layout-rave.party-live-overlay .vod-ep-hotzone{
+    bottom: 0;
+    height: 22%;
+  }
+  #videoArea.party-layout-rave.party-live-overlay > .party-float-emoji,
+  #trailerLayer.party-layout-rave.party-live-overlay > .party-float-emoji{
+    display: block;
+    right: 8%;
+    left: auto;
+    bottom: 22%;
+    font-size: 36px;
+  }
+
+  /* Optional solid bottom panel for heavy chat */
+  /* VOD overlay only — party chrome mounts on #videoArea for live */
+  #trailerLayer.show.party-layout-rave.party-live-expanded,
+  #trailerLayer.hls-mode.party-layout-rave.party-live-expanded,
+  #trailerLayer.embed-mode.party-layout-rave.party-live-expanded {
+    display: flex !important;
+    flex-direction: column;
+    gap: 0;
+  }
+  .tv-root.party-layout-rave.party-live-expanded .bg-video {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: calc(38% + env(safe-area-inset-bottom, 0px)) !important;
+    width: auto !important;
+    height: auto !important;
+    object-fit: cover;
+  }
+  .tv-root.party-layout-rave.party-live-expanded .bg-shade {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: calc(38% + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  #videoArea.party-layout-rave.party-live-expanded .trailer-frame-wrap,
+  #trailerLayer.party-layout-rave.party-live-expanded .trailer-frame-wrap{
+    flex: 1 1 62%;
+    min-height: 0;
+    max-height: 62%;
+    width: 100%;
+    position: relative;
+  }
+  #videoArea.party-layout-rave.party-live-expanded .party-drawer.open,
+  #trailerLayer.party-layout-rave.party-live-expanded .party-drawer.open{
+    position: relative;
+    left: auto; right: auto; top: auto; bottom: auto;
+    margin-top: auto;
+    width: 100%;
+    max-width: none;
+    flex: 0 0 calc(38% + env(safe-area-inset-bottom, 0px));
+    height: calc(38% + env(safe-area-inset-bottom, 0px));
+    max-height: none;
+    min-height: 32%;
+    border-radius: 0;
+    border: 0;
+    border-top: 1px solid rgba(255,255,255,.08);
+    background: rgba(10,12,16,.96);
+    box-shadow: none;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    pointer-events: auto;
+    z-index: 24;
+  }
+  #videoArea.party-layout-rave.party-live-expanded .hls-chrome,
+  #trailerLayer.party-layout-rave.party-live-expanded .hls-chrome,
+  #videoArea.party-layout-rave.party-live-expanded .embed-chrome,
+  #trailerLayer.party-layout-rave.party-live-expanded .embed-chrome,
+  #videoArea.party-layout-rave.party-live-expanded .vod-ep-chrome,
+  #trailerLayer.party-layout-rave.party-live-expanded .vod-ep-chrome{
+    bottom: calc(38% + 10px + env(safe-area-inset-bottom, 0px));
+  }
+  #videoArea.party-layout-rave.party-live-expanded > .party-float-emoji,
+  #trailerLayer.party-layout-rave.party-live-expanded > .party-float-emoji{ display: none; }
+
+  #videoArea.party-layout-rave .party-drawer.collapsed,
+  #trailerLayer.party-layout-rave .party-drawer.collapsed{
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+  }
+  body.party-chat-open #trailerLayer.hls-mode .hls-chrome,
+  #videoArea.party-chat-open.hls-mode .hls-chrome,
+  #trailerLayer.party-chat-open.hls-mode .hls-chrome{
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Landscape mobile = gapless video + flush chat rail (idle → edge handle)
+   --party-rail-w drives video/chrome right edge so nothing leaves a black gap.
+   ------------------------------------------------------------------------- */
+@media (max-height: 500px) and (orientation: landscape),
+       (max-width: 720px) and (orientation: landscape) {
+  /* VOD overlay only — party chrome mounts on #videoArea for live */
+  #trailerLayer.show.party-layout-hulu,
+  #trailerLayer.hls-mode.party-layout-hulu,
+  #trailerLayer.embed-mode.party-layout-hulu {
+    display: flex !important;
+    flex-direction: row;
+    gap: 0 !important;
+    column-gap: 0 !important;
+  }
+  #videoArea.party-layout-hulu,
+  #trailerLayer.party-layout-hulu{
+    --party-rail-w: 0px;
+  }
+  #videoArea.party-layout-hulu.party-chat-open:not(.party-chat-minimized),
+  #trailerLayer.party-layout-hulu.party-chat-open:not(.party-chat-minimized){
+    --party-rail-w: clamp(260px, 32vw, 360px);
+  }
+  #videoArea.party-layout-hulu.party-chat-minimized,
+  #trailerLayer.party-layout-hulu.party-chat-minimized{
+    --party-rail-w: 32px;
+  }
+
+  .tv-root.party-layout-hulu .bg-video {
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    right: var(--party-rail-w, 0px) !important;
+    width: auto !important;
+    height: auto !important;
+    object-fit: cover;
+  }
+  .tv-root.party-layout-hulu .bg-shade {
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    right: var(--party-rail-w, 0px) !important;
+  }
+  #videoArea.party-layout-hulu .trailer-frame-wrap,
+  #trailerLayer.party-layout-hulu .trailer-frame-wrap{
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+  }
+  #videoArea.party-layout-hulu .party-drawer.open,
+  #trailerLayer.party-layout-hulu .party-drawer.open{
+    position: relative;
+    left: auto; right: auto; top: auto; bottom: auto;
+    margin: 0;
+    margin-left: 0;
+    flex: 0 0 var(--party-rail-w, clamp(260px, 32vw, 360px));
+    width: var(--party-rail-w, clamp(260px, 32vw, 360px));
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    min-height: 0;
+    border-radius: 0;
+    border: 0;
+    border-left: 1px solid rgba(255,255,255,.08);
+    background: rgba(10,12,16,.92);
+    box-shadow: none;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding-top: max(10px, env(safe-area-inset-top, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-right: max(10px, calc(8px + env(safe-area-inset-right, 0px)));
+    padding-left: 8px;
+    pointer-events: auto;
+    z-index: 24;
+    transition: flex-basis .32s ease, width .32s ease, padding .32s ease, background .32s ease;
+  }
+
+  /* Minimized = thin right-edge handle (gapless video expand) */
+  #videoArea.party-layout-hulu.party-chat-minimized .party-drawer.open,
+  #trailerLayer.party-layout-hulu.party-chat-minimized .party-drawer.open{
+    flex: 0 0 32px;
+    width: 32px;
+    padding: max(8px, env(safe-area-inset-top, 0px)) 0 env(safe-area-inset-bottom, 0px);
+    border-left: 1px solid rgba(255,255,255,.12);
+    background: rgba(12,14,18,.88);
+    cursor: pointer;
+    overflow: hidden;
+  }
+  #videoArea.party-layout-hulu.party-chat-minimized .party-drawer.open > *:not(.ph),
+  #trailerLayer.party-layout-hulu.party-chat-minimized .party-drawer.open > *:not(.ph){
+    display: none !important;
+  }
+  #videoArea.party-layout-hulu.party-chat-minimized .party-drawer.open .ph,
+  #trailerLayer.party-layout-hulu.party-chat-minimized .party-drawer.open .ph{
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    padding: 8px 0;
+    border: 0;
+    gap: 0;
+  }
+  #videoArea.party-layout-hulu.party-chat-minimized .party-drawer.open .party-title-wrap,
+  #trailerLayer.party-layout-hulu.party-chat-minimized .party-drawer.open .party-title-wrap,
+  #videoArea.party-layout-hulu.party-chat-minimized .party-drawer.open #partyHideBtn,
+  #trailerLayer.party-layout-hulu.party-chat-minimized .party-drawer.open #partyHideBtn{
+    display: none !important;
+  }
+  #videoArea.party-layout-hulu.party-chat-minimized .party-drawer.open #partyCollapseBtn,
+  #trailerLayer.party-layout-hulu.party-chat-minimized .party-drawer.open #partyCollapseBtn{
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+
+  #videoArea.party-layout-hulu .hls-chrome,
+  #trailerLayer.party-layout-hulu .hls-chrome,
+  #videoArea.party-layout-hulu .embed-chrome,
+  #trailerLayer.party-layout-hulu .embed-chrome,
+  #videoArea.party-layout-hulu .vod-ep-chrome,
+  #trailerLayer.party-layout-hulu .vod-ep-chrome,
+  #videoArea.party-layout-hulu .hls-hotzone,
+  #trailerLayer.party-layout-hulu .hls-hotzone,
+  #videoArea.party-layout-hulu .vod-ep-hotzone,
+  #trailerLayer.party-layout-hulu .vod-ep-hotzone,
+  #videoArea.party-layout-hulu .sd-sub-overlay,
+  #trailerLayer.party-layout-hulu .sd-sub-overlay,
+  #videoArea.party-layout-hulu .pc-toast,
+  #trailerLayer.party-layout-hulu .pc-toast,
+  #videoArea.party-layout-hulu .pc-xray-sheet,
+  #trailerLayer.party-layout-hulu .pc-xray-sheet{
+    right: var(--party-rail-w, 0px) !important;
+  }
+  #videoArea.party-layout-hulu .trailer-back-btn,
+  #trailerLayer.party-layout-hulu .trailer-back-btn{
+    max-width: calc(100% - var(--party-rail-w, 0px) - 16px);
+  }
+  #videoArea.party-layout-hulu.embed-mode .embed-chrome-title,
+  #trailerLayer.party-layout-hulu.embed-mode .embed-chrome-title,
+  #videoArea.party-layout-hulu.hls-mode .hls-chrome .pc-title,
+  #trailerLayer.party-layout-hulu.hls-mode .hls-chrome .pc-title{
+    max-width: 100%;
+  }
+  #videoArea.party-layout-hulu #partyLiveExpandBtn,
+  #trailerLayer.party-layout-hulu #partyLiveExpandBtn{ display: none; }
+  #videoArea.party-layout-hulu .ph,
+  #trailerLayer.party-layout-hulu .ph{ padding: 8px 6px; min-height: 44px; }
+  #videoArea.party-layout-hulu .members,
+  #trailerLayer.party-layout-hulu .members{ padding: 4px 8px; font-size: 11px; max-height: 3.6em; }
+  #videoArea.party-layout-hulu .chat,
+  #trailerLayer.party-layout-hulu .chat{ padding: 6px 8px; font-size: 12px; }
+  #videoArea.party-layout-hulu .party-reactions,
+  #trailerLayer.party-layout-hulu .party-reactions{ padding: 4px 6px; gap: 2px; }
+  #videoArea.party-layout-hulu .party-reactions button,
+  #trailerLayer.party-layout-hulu .party-reactions button{
+    font-size: 16px; padding: 4px; min-width: 36px; min-height: 36px;
+  }
+  #videoArea.party-layout-hulu .compose,
+  #trailerLayer.party-layout-hulu .compose{ padding: 6px; }
+  #videoArea.party-layout-hulu .compose input,
+  #trailerLayer.party-layout-hulu .compose input,
+  #videoArea.party-layout-hulu .compose > button,
+  #trailerLayer.party-layout-hulu .compose > button,
+  #videoArea.party-layout-hulu .compose #partyChatSend,
+  #trailerLayer.party-layout-hulu .compose #partyChatSend{
+    padding: 0 12px; min-height: 36px; height: 36px;
+  }
+  #videoArea.party-layout-hulu .party-host-bar,
+  #trailerLayer.party-layout-hulu .party-host-bar{ display: none; }
+  #videoArea.party-layout-hulu:not(.party-chat-minimized) > .party-float-emoji,
+  #trailerLayer.party-layout-hulu:not(.party-chat-minimized) > .party-float-emoji{ display: none; }
+  #videoArea.party-layout-hulu.party-chat-minimized > .party-float-emoji,
+  #trailerLayer.party-layout-hulu.party-chat-minimized > .party-float-emoji{
+    display: block;
+    right: 48px;
+    left: auto;
+  }
+  .party-fab {
+    top: max(10px, env(safe-area-inset-top, 0px));
+    bottom: auto;
+    right: max(14px, calc(12px + env(safe-area-inset-right, 0px) + var(--party-rail-w, 0px)));
+  }
+  #videoArea.party-layout-hulu.party-chat-minimized .party-fab,
+  #trailerLayer.party-layout-hulu.party-chat-minimized .party-fab{
+    right: max(40px, calc(36px + env(safe-area-inset-right, 0px)));
+  }
+  .sd-modal-party { max-height: 92vh; }
+}
+
+/* Desktop (>720px, not short-landscape phone): keep floating side drawer overlay */
+
+/* -------------------------------------------------------------------------
+   Watch party chat UI modes + rising bubbles (marker: party-rising-bubbles, sd_party_chat_mode)
+   ------------------------------------------------------------------------- */
+.party-extras[hidden] { display: none !important; }
+.party-extras {
+  display: flex; flex-direction: column; gap: 0;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  max-height: 42vh; overflow: auto;
+}
+.party-fab {
+  position: absolute;
+}
+.party-fab .party-fab-badge {
+  position: absolute; top: -2px; right: -2px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 999px; background: #ef4444; color: #fff;
+  font: 700 10px/16px system-ui, sans-serif; text-align: center;
+}
+.party-fab.mode-sidebar { opacity: 1; background: rgba(0,0,0,.48); }
+.party-fab.mode-coherency {
+  opacity: 1; background: rgba(37, 99, 235, .45);
+  box-shadow: 0 0 0 1px rgba(96,165,250,.45), 0 8px 28px rgba(0,0,0,.35);
+}
+.party-fab.mode-peek { opacity: .85; background: rgba(0,0,0,.4); }
+.party-fab.mode-muted { opacity: .42; filter: grayscale(1); background: rgba(40,40,40,.5); }
+.party-fab.mode-cinema { opacity: .22; background: rgba(0,0,0,.28); transform: scale(.92); }
+.party-fab.mode-cinema:hover { opacity: .4; }
+
+.party-mode-picker {
+  position: fixed; z-index: 40;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px; border-radius: 12px;
+  background: rgba(12,14,18,.92); border: 1px solid rgba(255,255,255,.12);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  pointer-events: auto;
+}
+.party-mode-picker[hidden] { display: none !important; }
+.party-mode-picker button {
+  border: 0; border-radius: 8px; padding: 8px 14px; min-width: 110px;
+  background: transparent; color: #e2e8f0; font: 600 12px system-ui,sans-serif;
+  text-align: left; cursor: pointer;
+}
+.party-mode-picker button:hover { background: rgba(255,255,255,.08); }
+
+/* Rising FB Live bubbles — pointer-events none except bubble tap */
+.party-rising-bubbles {
+  position: absolute;
+  left: max(10px, env(safe-area-inset-left, 0px));
+  right: max(72px, env(safe-area-inset-right, 0px));
+  bottom: max(72px, calc(16px + env(safe-area-inset-bottom, 0px)));
+  z-index: 14;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start;
+  gap: 6px; max-width: min(420px, 72vw);
+  max-height: min(28vh, 160px);
+  overflow: hidden;
+  pointer-events: none;
+  touch-action: manipulation;
+}
+.party-rising-bubble {
+  pointer-events: auto; cursor: pointer;
+  max-width: 100%;
+  padding: 7px 12px; border-radius: 14px;
+  background: rgba(0,0,0,.42); color: rgba(255,255,255,.92);
+  font: 500 13px/1.35 var(--player-font, system-ui, sans-serif);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(0,0,0,.25);
+  animation: partyRiseIn .38s ease-out;
+  transition: opacity .45s ease, transform .45s ease;
+  word-break: break-word;
+}
+.party-rising-bubble .party-rising-name {
+  font-weight: 700; color: #93c5fd; margin-right: 4px;
+}
+.party-rising-bubble.party-rising-react {
+  font-size: 28px; padding: 4px 10px; background: rgba(0,0,0,.28);
+  align-self: flex-end; margin-right: 8%;
+}
+.party-rising-bubble.fade {
+  opacity: 0; transform: translateY(-18px);
+}
+@keyframes partyRiseIn {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.party-chat-mode-muted .party-rising-bubbles,
+.party-chat-mode-cinema .party-rising-bubbles { display: none !important; }
+.party-chat-mode-peek .party-drawer.open { display: none !important; }
+.party-chat-mode-cinema .party-drawer { display: none !important; }
+.party-chat-mode-muted .party-drawer { display: none !important; }
+
+/* Coherency / Live: single bottom flex dock — meta → rising → reactions → compose */
+.party-chat-mode-coherency .party-drawer.open,
+#videoArea.party-chat-mode-coherency .party-drawer.open,
+#trailerLayer.party-chat-mode-coherency .party-drawer.open,
+.party-live-dock .party-drawer.open {
+  position: absolute !important;
+  left: 0; right: 0;
+  top: auto; bottom: 0;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: min(52vh, var(--party-vv-height, 100dvh));
+  margin: 0;
+  border-radius: 0;
+  border: 0;
+  display: flex !important;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  background: linear-gradient(transparent, rgba(0,0,0,.42) 18%, rgba(0,0,0,.72));
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding-left: max(8px, env(safe-area-inset-left, 0px));
+  padding-right: max(8px, calc(env(safe-area-inset-right, 0px) + var(--party-fab-clear, 56px)));
+  padding-bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) + var(--party-vv-inset, 0px)));
+  pointer-events: none;
+  z-index: 24;
+  transition: opacity .25s ease;
+}
+.party-dock-dim .party-drawer.open,
+.party-live-dock.party-dock-dim .party-drawer.open {
+  opacity: .62;
+}
+.party-chat-mode-coherency .party-drawer.open > *,
+.party-live-dock .party-drawer.open > * { pointer-events: auto; }
+
+/* Live dock: hide transcript list — rising bubbles are the message surface */
+.party-chat-mode-coherency .party-drawer .chat,
+.party-live-dock .party-drawer .chat {
+  display: none !important;
+}
+.party-chat-mode-coherency .party-extras:not([hidden]) {
+  background: rgba(0,0,0,.35); border-radius: 10px; margin: 0 4px 6px;
+  max-height: 36vh;
+}
+.party-chat-mode-coherency .party-fab.show,
+.party-live-dock .party-fab.show {
+  display: inline-flex !important;
+  width: 48px; height: 48px; min-width: 44px; min-height: 44px;
+  bottom: max(14px, calc(10px + env(safe-area-inset-bottom, 0px) + var(--party-vv-inset, 0px)));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  z-index: 26;
+  touch-action: manipulation;
+}
+
+/* Live (C): hide sidebar-layout chrome; FB Live compose + dock stack */
+.party-chat-mode-coherency .party-sb-tabbar,
+.party-chat-mode-coherency .party-dual-top,
+.party-chat-mode-coherency .party-tabs-hint,
+.party-chat-mode-coherency .party-call-block,
+.party-chat-mode-coherency .members,
+.party-chat-mode-coherency #partyCollapseBtn,
+.party-chat-mode-coherency #partyLiveExpandBtn {
+  display: none !important;
+}
+
+/* Meta row: single-line title + chips; never draws through bubbles */
+.party-chat-mode-coherency .party-drawer .ph,
+.party-live-dock .party-drawer .ph {
+  background: transparent; border: 0; min-height: 36px; padding: 4px 4px 2px;
+  flex: 0 0 auto; overflow: hidden; order: 0;
+  align-items: center;
+}
+.party-chat-mode-coherency .party-title-wrap,
+.party-live-dock .party-title-wrap {
+  flex-wrap: nowrap; overflow: hidden; min-width: 0;
+}
+.party-chat-mode-coherency .party-drawer-name,
+.party-live-dock .party-drawer-name {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: block; max-width: 100%;
+  -webkit-line-clamp: unset;
+}
+.party-chat-mode-coherency .party-drawer .compose {
+  margin: 0 0 2px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.5);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  flex: 0 0 auto; order: 40;
+  padding: 4px 6px;
+  min-height: 44px;
+  touch-action: manipulation;
+}
+.party-chat-mode-coherency .party-drawer .compose input {
+  background: transparent; border: 0; min-width: 0;
+}
+.party-chat-mode-coherency .party-drawer .compose #partyChatSend {
+  background: transparent; color: rgba(255,255,255,.72); font-weight: 600;
+}
+.party-chat-mode-coherency .party-reactions {
+  background: transparent; border: 0; justify-content: flex-start;
+  padding: 0 4px; flex: 0 0 auto; order: 30;
+  gap: 2px; flex-wrap: nowrap; overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.party-chat-mode-coherency .party-reactions button {
+  min-width: 36px; min-height: 36px; touch-action: manipulation;
+}
+.party-chat-mode-coherency .party-gif-picker { order: 35; }
+
+/* Rising stack lives inside dock — relative, above compose, below meta */
+.party-chat-mode-coherency .party-rising-bubbles,
+.party-live-dock .party-rising-bubbles.party-rising-in-dock,
+.party-rising-bubbles.party-rising-in-dock {
+  position: relative !important;
+  left: auto !important; right: auto !important; bottom: auto !important;
+  width: 100%;
+  max-width: 100%;
+  z-index: 1;
+  flex: 0 1 auto;
+  order: 20;
+  margin: 0;
+  padding: 0 2px;
+  gap: 5px;
+  overflow: hidden;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.party-chat-mode-coherency .party-rising-bubble.party-rising-react {
+  align-self: flex-end;
+  margin-left: auto;
+  margin-right: 4px;
+}
+
+/* Narrow Live dock: icon-only GIF/mic */
+.party-dock-narrow .party-drawer .compose .party-compose-tools .party-icon-btn,
+.party-chat-mode-coherency.party-dock-narrow .party-drawer .compose #partyGifBtn {
+  font-size: 0; letter-spacing: 0; min-width: 40px; width: 40px;
+}
+.party-dock-narrow .party-drawer .compose #partyGifBtn::before {
+  content: "GIF"; font-size: 10px; font-weight: 800; letter-spacing: .04em;
+}
+.party-dock-narrow .party-drawer .compose #partyVoiceBtn {
+  font-size: 16px;
+}
+.party-dock-narrow .party-drawer .compose #partyChatSend {
+  font-size: 12px; padding: 0 8px;
+}
+
+/* Short landscape: tighter dock */
+.party-dock-short .party-drawer.open {
+  max-height: min(58vh, 220px) !important;
+  gap: 3px;
+  padding-bottom: max(4px, calc(env(safe-area-inset-bottom, 0px) + var(--party-vv-inset, 0px)));
+}
+.party-dock-short .party-reactions button { min-width: 32px; min-height: 32px; font-size: 16px; }
+.party-dock-short .party-drawer .ph { min-height: 28px; padding: 2px 4px; }
+
+/* Help overlay (shortcuts) */
+.sd-keys-help {
+  position: fixed; z-index: 80; inset: 0; display: grid; place-items: center;
+  background: rgba(0,0,0,.55); padding: 16px;
+  pointer-events: auto;
+}
+.sd-keys-help[hidden] { display: none !important; }
+.sd-keys-help-card {
+  width: min(420px, 100%); max-height: min(80vh, 560px); overflow: auto;
+  border-radius: 16px; padding: 16px 18px;
+  background: rgba(14,16,22,.96); border: 1px solid rgba(255,255,255,.12);
+  color: #e8edf5; font: 500 13px/1.45 system-ui, sans-serif;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+.sd-keys-help-card h3 { margin: 0 0 10px; font-size: 15px; }
+.sd-keys-help-card dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
+.sd-keys-help-card dt {
+  font: 700 11px/1.2 ui-monospace, monospace; color: #93c5fd;
+  background: rgba(255,255,255,.06); border-radius: 6px; padding: 4px 7px; white-space: nowrap;
+}
+.sd-keys-help-card dd { margin: 0; color: #cbd5e1; align-self: center; }
+.sd-keys-help-card .hint { margin: 12px 0 0; font-size: 11px; color: #9aa4b2; }
+
+/* -------------------------------------------------------------------------
+   Sidebar layouts A / B / E (marker: sd_party_sidebar_style, chat-first, tabs, dual-pane)
+   D compact-rail is intentionally not offered.
+   ------------------------------------------------------------------------- */
+.party-sb-tabbar {
+  display: none;
+  gap: 0; padding: 0 8px; flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.party-sb-tabbar button {
+  flex: 1; min-height: 36px; border: 0; border-radius: 0;
+  background: transparent; color: var(--player-chrome-muted, #9aa);
+  font: 600 12px/1 var(--player-font, system-ui, sans-serif);
+  cursor: pointer; position: relative;
+  padding: 8px 4px 10px;
+}
+.party-sb-tabbar button.active {
+  color: var(--player-chrome-fg, #f4f4f5);
+}
+.party-sb-tabbar button.active::after {
+  content: ""; position: absolute; left: 12%; right: 12%; bottom: 0;
+  height: 2px; border-radius: 2px 2px 0 0; background: #fff;
+}
+.party-dual-top { display: none; flex-shrink: 0; }
+.party-dual-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; border: 0; background: transparent; color: inherit;
+  padding: 8px 12px; cursor: pointer; font: 600 12px var(--player-font, system-ui, sans-serif);
+}
+.party-dual-toggle-label { display: inline-flex; align-items: center; gap: 8px; }
+.party-dual-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.18);
+}
+.party-dual-chevron { opacity: .7; font-size: 12px; }
+.party-call-block { display: none; flex-direction: column; flex-shrink: 0; }
+.party-tabs-hint {
+  display: none; margin: 0; padding: 8px 12px 10px;
+  font: 500 11px/1.35 var(--player-font, system-ui, sans-serif);
+  color: var(--player-chrome-muted, #9aa);
+  border-top: 1px solid rgba(255,255,255,.06);
+  background: rgba(0,0,0,.18);
+}
+.party-tabs-hint::before {
+  content: "ⓘ "; opacity: .8;
+}
+.party-sidebar-style-row {
+  padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px;
+}
+.party-sidebar-style-label {
+  font: 700 10px/1.2 var(--player-font, system-ui, sans-serif);
+  letter-spacing: .04em; text-transform: uppercase;
+  color: var(--player-chrome-muted, #9aa);
+}
+.party-sidebar-style-picker {
+  display: flex; gap: 4px; flex-wrap: wrap;
+}
+.party-sidebar-style-picker button {
+  flex: 1 1 auto; min-width: 72px; min-height: 32px;
+  border-radius: 10px; border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.05); color: var(--player-chrome-muted, #cbd5e1);
+  font: 600 11px var(--player-font, system-ui, sans-serif); cursor: pointer;
+}
+.party-sidebar-style-picker button.active {
+  background: rgba(59,130,246,.28);
+  border-color: rgba(96,165,250,.45);
+  color: #eff6ff;
+}
+.party-sidebar-style-hint {
+  margin: 0; font: 500 10px/1.35 var(--player-font, system-ui, sans-serif);
+  color: var(--player-chrome-muted, #7a8494);
+}
+
+/* A / B / E only apply in Sidebar chat mode (not Live/peek/…) */
+/* A — Chat first (default sidebar) */
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first .party-sb-tabbar,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first .party-dual-top,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first .party-tabs-hint {
+  display: none !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first:not(.extras-open) .party-call-block,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first:not(.extras-open) .members {
+  display: none !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first.extras-open .party-call-block {
+  display: flex;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  max-height: 36vh; overflow: auto;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first.extras-open .members {
+  display: flex;
+  max-height: 5.5em;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first .party-title-wrap {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first .chat {
+  flex: 1 1 auto; min-height: 0;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first .party-reactions,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first .compose {
+  position: sticky; bottom: 0; z-index: 2;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first .ph #partyCollapseBtn,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-chat-first .ph #partyLiveExpandBtn {
+  display: none;
+}
+
+/* B — Tabs (marker: tabs) */
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs .party-sb-tabbar { display: flex; }
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs .party-dual-top {
+  display: none !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs .party-tabs-hint { display: block; }
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs .party-call-block,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs .members,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs .chat,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs .party-reactions,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs .compose,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs .party-gif-picker {
+  display: none !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="chat"] .chat,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="chat"] .party-reactions,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="chat"] .compose {
+  display: flex !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="chat"] .chat {
+  display: block !important; flex: 1 1 auto; min-height: 0;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="chat"] .party-gif-picker.open {
+  display: flex !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="people"] .members {
+  display: flex !important;
+  flex: 1 1 auto; max-height: none; overflow: auto;
+  flex-direction: column; align-items: stretch; white-space: normal;
+  padding: 10px 12px;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="people"] .members .party-member:not(:last-child)::after {
+  content: none;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="people"] .party-tabs-hint { display: none; }
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="call"] .party-call-block {
+  display: flex !important; flex: 1 1 auto; overflow: auto;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="call"] .party-features-bar,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="call"] .party-host-bar {
+  display: none !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="call"] .party-tabs-hint { display: none; }
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="room"] .party-call-block {
+  display: flex !important; flex: 1 1 auto; overflow: auto;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="room"] .party-mode-switch,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="room"] .party-av-provider-host {
+  display: none !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="room"] .party-features-bar.show {
+  display: flex !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="room"] .party-host-bar:not([hidden]) {
+  display: flex !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs[data-sidebar-tab="room"] .party-tabs-hint { display: none; }
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs .ph #partyCollapseBtn,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-tabs .ph #partyLiveExpandBtn {
+  display: none;
+}
+
+/* E — Dual pane */
+.party-chat-mode-sidebar .party-drawer.party-sidebar-dual-pane {
+  gap: 0;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-dual-pane .party-sb-tabbar,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-dual-pane .party-tabs-hint {
+  display: none !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-dual-pane .party-dual-top {
+  display: block;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.03);
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-dual-pane .party-call-block {
+  display: flex;
+  max-height: 30%;
+  overflow: auto;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  background: rgba(0,0,0,.16);
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-dual-pane.dual-collapsed .party-call-block {
+  display: none !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-dual-pane .members {
+  display: none !important;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-dual-pane .chat {
+  flex: 1 1 70%; min-height: 0;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-dual-pane .party-mode-switch button.active {
+  background: rgba(59,130,246,.45); color: #eff6ff;
+}
+.party-chat-mode-sidebar .party-drawer.party-sidebar-dual-pane .ph #partyCollapseBtn,
+.party-chat-mode-sidebar .party-drawer.party-sidebar-dual-pane .ph #partyLiveExpandBtn {
+  display: none;
+}
+
+/* Sidebar mode markers: chat-first | tabs | dual-pane (no D) */
+
+/* Channel report modal (⋯ → Report) */
+.sd-modal-report {
+  width: min(520px, 94vw);
+  max-height: min(90vh, 760px);
+  overflow: auto;
+}
+.sd-report-hint { margin: 0 0 10px; color: #9aa3b5; font-size: 13px; line-height: 1.35; }
+.sd-report-meta {
+  display: grid; gap: 4px; margin: 0 0 12px; padding: 10px 12px;
+  border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+  font: 500 12px/1.4 ui-monospace, monospace; color: #c5cddb;
+}
+.sd-report-meta b { color: #8eb6ff; font-weight: 700; }
+.sd-report-shot-wrap { margin: 0 0 12px; }
+.sd-report-shot {
+  display: block; width: 100%; max-height: 180px; object-fit: contain;
+  border-radius: 10px; background: #0b0d12; border: 1px solid rgba(255,255,255,.1);
+}
+.sd-report-shot-status { margin-top: 6px; font-size: 12px; color: #9aa3b5; }
+.sd-report-label {
+  display: block; margin: 0 0 10px; font: 600 12px/1.3 system-ui,sans-serif; color: #b8c0d0;
+}
+.sd-report-label input,
+.sd-report-label select,
+.sd-report-label textarea,
+.sd-modal-report textarea {
+  display: block; width: 100%; margin-top: 6px; box-sizing: border-box;
+  border-radius: 10px; border: 1px solid #333; background: #0b0d12; color: #fff;
+  padding: 10px 12px; font: 500 13px system-ui,sans-serif; resize: vertical;
+}
+.sd-report-cats {
+  display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px;
+}
+.sd-report-cat {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.03); font: 600 12px system-ui,sans-serif; color: #e8edf5;
+  cursor: pointer; user-select: none;
+}
+.sd-report-cat:has(input:checked) {
+  border-color: rgba(37,99,235,.7); background: rgba(37,99,235,.22);
+}
+.sd-report-grid {
+  display: grid; grid-template-columns: minmax(110px, 0.4fr) 1fr; gap: 10px;
+}
+@media (max-width: 520px) {
+  .sd-report-grid { grid-template-columns: 1fr; }
+}
+.sd-report-check {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 8px;
+  font: 500 12px system-ui,sans-serif; color: #aeb6c5; cursor: pointer;
+}
+.sd-report-status { margin: 10px 0 0; font-size: 12px; color: #86efac; min-height: 1.2em; }
+.sd-report-status.err { color: #fca5a5; }

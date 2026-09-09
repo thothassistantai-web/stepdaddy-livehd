@@ -1,0 +1,21 @@
+{
+  "name": "us-cable-discovery-lifestyle-sports",
+  "description": "Batch 05: remaining US cable Discovery/lifestyle/kids + sports/news gaps",
+  "channels": [
+    {"id": "39", "name": "Fox Sports 1 USA", "group": "us-sports"},
+    {"id": "308", "name": "CBS Sports Network", "group": "us-sports"},
+    {"id": "318", "name": "GOLF Channel USA", "group": "us-sports"},
+    {"id": "304", "name": "Animal Planet", "group": "us-discovery"},
+    {"id": "324", "name": "Investigation Discovery", "group": "us-discovery"},
+    {"id": "337", "name": "TLC USA", "group": "us-discovery"},
+    {"id": "382", "name": "HGTV", "group": "us-lifestyle"},
+    {"id": "384", "name": "The Food Network", "group": "us-lifestyle"},
+    {"id": "322", "name": "History USA", "group": "us-discovery"},
+    {"id": "328", "name": "National Geographic", "group": "us-discovery"},
+    {"id": "315", "name": "E! Entertainment", "group": "us-entertainment"},
+    {"id": "373", "name": "SYFY USA", "group": "us-entertainment"},
+    {"id": "334", "name": "Paramount Network", "group": "us-entertainment"},
+    {"id": "341", "name": "TruTV USA", "group": "us-entertainment"},
+    {"id": "301", "name": "Freeform", "group": "us-entertainment"}
+  ]
+}

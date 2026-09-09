@@ -1,0 +1,396 @@
+{
+  "schema_version": "1.0.0",
+  "audit_id": "audit-654-20260908T172355Z",
+  "audited_at": "2026-09-08T17:23:55.801995+00:00",
+  "auditor": {
+    "tool": "scripts/channel-audit.py",
+    "tool_version": "1.2.0",
+    "operator": null,
+    "host": "pop-os"
+  },
+  "gateway_base": "https://sdgateway.duckdns.org",
+  "channel_id": "654",
+  "notes": null,
+  "phases": {
+    "identity": "complete",
+    "stream_probe": "complete",
+    "playback": "partial",
+    "epg": "complete",
+    "metadata": "partial",
+    "ux": "partial",
+    "verdict": "partial"
+  },
+  "identity": {
+    "channel_id": "654",
+    "display_name": "FOX 5 NYC",
+    "aliases": [],
+    "sibling_ids": [],
+    "provider": "DaddyLive",
+    "source": "ddl",
+    "group_title": null,
+    "tags": [
+      "\ud83c\uddfa\ud83c\uddf8",
+      "#news",
+      "#local"
+    ],
+    "adult": false,
+    "category_hints": [
+      "#news",
+      "#local"
+    ],
+    "playlist_index": 654,
+    "playlist_number": 655,
+    "ui_channel_number": null,
+    "top_network_candidate": false,
+    "favorites_flag": null,
+    "logo_url": "https://sdgateway.duckdns.org/logo/aHR0cHM6Ly9maWxlcy5jYXRib3gubW9lLzY5Y3hrcS5wbmc=",
+    "logo_http_status": 200,
+    "logo_content_type": "image/png",
+    "logo_bytes": 11862,
+    "logo_load_ok": true,
+    "dead_catalog_flag": false,
+    "cdn_blocked_flag": false,
+    "cdn_tos_blocked_flag": false
+  },
+  "stream": {
+    "paths": {
+      "live_m3u8": "/live/654.m3u8",
+      "stream_m3u8": "/stream/654.m3u8",
+      "content_proxy": "/content/{token}",
+      "embed_page": "/live/654/embed",
+      "embed_m3u8": "/live/654/embed.m3u8",
+      "tivimate_stream": null,
+      "tv_page": "/tv/654",
+      "play_page": "/play/654"
+    },
+    "proxy_mode": "content_proxy",
+    "upstream": {
+      "referer_host": "hamis.romponalis.st",
+      "embed_host": "hamis.romponalis.st",
+      "cdn_host": null,
+      "domain_family": null,
+      "notes": "Primary path is /live/{id}.m3u8 HLS; /embed is manual/debug only."
+    },
+    "headers_needs": {
+      "user_agent_required": true,
+      "referer_required": true,
+      "origin_required": false,
+      "cookie_required": false,
+      "notes": "Gateway injects upstream Referer for /content/; clients should not store secret header values."
+    },
+    "playlist": {
+      "http_status": 200,
+      "reachable": true,
+      "kind": "hls_media",
+      "target_duration_sec": 5.0,
+      "media_sequence": 20297,
+      "has_program_date_time": true,
+      "has_ext_x_map": false,
+      "has_endlist": false,
+      "segment_count_sampled": 6,
+      "segment_ext_hint": "unknown",
+      "bytes": 1399
+    },
+    "abr_ladder": [
+      {
+        "bandwidth_bps": 3670000,
+        "avg_bandwidth_bps": 2940000,
+        "resolution": "1280x720",
+        "width": 1280,
+        "height": 720,
+        "frame_rate": 59.94,
+        "codecs": "avc1.4d4028,mp4a.40.2",
+        "uri_kind": "content_proxy"
+      }
+    ],
+    "active_variant": {
+      "bandwidth_bps": 3670000,
+      "avg_bandwidth_bps": 2940000,
+      "resolution": "1280x720",
+      "width": 1280,
+      "height": 720,
+      "frame_rate": 59.94,
+      "codecs": "avc1.4d4028,mp4a.40.2",
+      "uri_kind": "content_proxy"
+    },
+    "segment_sample": {
+      "http_status": 200,
+      "bytes": 878336,
+      "container": "mpegts",
+      "mpegts_sync_ok": true,
+      "mpegts_mod188_ok": true,
+      "via_proxy": true
+    },
+    "codecs": {
+      "video_codec": "h264",
+      "video_profile": "Main",
+      "video_level": 4.0,
+      "audio_codec": "aac",
+      "audio_profile": "LC",
+      "pix_fmt": "yuv420p",
+      "has_b_frames": 2,
+      "ffprobe_ok": true,
+      "ffprobe_error": null
+    },
+    "picture": {
+      "width": 1280,
+      "height": 720,
+      "fps": 59.94,
+      "aspect_ratio": "16:9",
+      "scan_type": "progressive",
+      "bitrate_bps": 1748797,
+      "avg_bitrate_bps": 2940000
+    },
+    "stream_status": "live",
+    "status_detail": null
+  },
+  "playback": {
+    "surfaces": {
+      "tv_mse": {
+        "status": "untested",
+        "notes": "HUMAN: confirm MSE paint on /tv; auto only checked page HTTP status=200"
+      },
+      "play_page": {
+        "status": "untested",
+        "notes": "HTTP 200"
+      },
+      "embed_clappr": {
+        "status": "ok",
+        "notes": "HTTP 200 (visual confirm still HUMAN)"
+      },
+      "tivimate_exoplayer": {
+        "status": "n_a",
+        "notes": "HUMAN: ExoPlayer path; Linux gateway may not expose /tivimate-stream/ (APK-local)."
+      },
+      "apk_native": {
+        "status": "untested",
+        "notes": "HUMAN"
+      }
+    },
+    "decode_notes": {
+      "mse_vs_exoplayer": null,
+      "green_black_history": null,
+      "paint_death_observed": null,
+      "lighter_variant_available": false,
+      "single_1080_high_risk": false
+    },
+    "ffmpeg_frame": {
+      "ok": true,
+      "path": "docs/channel-audit/examples/repair-fox5-nyc-654-20260908w/audit-654-20260908T172355Z-artifacts/654-frame.jpg",
+      "detail": "frame_bytes=61423"
+    }
+  },
+  "epg": {
+    "tvg_id": "WNYW-DT.us_locals1",
+    "epg_source": "epgpw",
+    "match_method": "epgpw",
+    "match_confidence": 0.97,
+    "epg_has_data": true,
+    "epg_match_status": "visually_confirmed",
+    "daypart_hint": null,
+    "daypart_plausible": true,
+    "now_title": "25 Words or Less",
+    "now_start": "2026-09-08T17:00:00+00:00",
+    "now_stop": "2026-09-08T17:30:00+00:00",
+    "next_title": "TMZ",
+    "schedule_events_sampled": 10,
+    "timezone_notes": "EPG timestamps are UTC ISO-8601 from gateway; confirm local guide TZ on device. Non-empty now/next is not proof of correct feed.",
+    "region_hint": "US",
+    "language_hint": "en-US",
+    "language_confirmed": null,
+    "visual_epg_match": "match",
+    "visual_epg_notes": null,
+    "wrong_feed_suspect": null,
+    "ground_truth_title": "Fox 5 News (previously recorded)"
+  },
+  "metadata": {
+    "title_now_playing": "25 Words or Less",
+    "media_session_title": null,
+    "neighbors": {
+      "prev_id": "377",
+      "prev_name": "MUTV UK",
+      "next_id": "745",
+      "next_name": "Nat Geo Wild USA"
+    },
+    "last_verified_at": "2026-09-08T17:23:55.801995+00:00",
+    "verified_by": "scripts/channel-audit.py",
+    "prior_incidents": [
+      "docs/channel-audit/examples/audit-654-20260908T171624Z.json",
+      "docs/channel-audit/examples/repair-fox5nyc-654-20260908w/REPAIR.md",
+      "docs/channel-audit/examples/repair-fox5nyc-654-20260908w/artifacts/654-frame.jpg",
+      "docs/channel-audit/examples/repair-fox5nyc-654-20260908w/audit-654-20260908T171624Z.json",
+      "docs/channel-audit/examples/repair-fox5-nyc-654-20260908w/",
+      "docs/channel-audit/examples/repair-fox5-nyc-654-20260908w/_probe/654-confirm.jpg"
+    ]
+  },
+  "ux": {
+    "mobile_tv_path_notes": "/tv/654 uses hls.js MSE via /live/654.m3u8 \u2192 /content/ proxy.",
+    "tivimate_path_notes": "TiviMate typically uses gateway APK playlist or /live/{id}.m3u8; UI channel number may differ from playlist_number.",
+    "guide_search_name_ok": null,
+    "icon_recognizable": null,
+    "group_placement_ok": null,
+    "numbering_confusion_risk": null
+  },
+  "verdict": {
+    "health": "healthy",
+    "severity": "none",
+    "summary": "FOX 5 NYC (654); status=live; health=healthy; 1280x720; epg_now=25 Words or Less; epg_match=visually_confirmed",
+    "repair_actions": [
+      {
+        "action": "Registry case fox-5-nyc-654-20260908w: keep/apply tvg_id=WNYW-DT.us_locals1 epgpw_pin=468913 prefer_source=json; clear cache ['468913']; GT was '25 Words or Less'.",
+        "severity": "medium",
+        "owner": "epg",
+        "auto_suggested": true,
+        "registry_case_id": "fox-5-nyc-654-20260908w",
+        "safe_auto_apply": true
+      },
+      {
+        "action": "Registry case fox5-nyc-wnyw-654-20260908w: keep/apply tvg_id=WNYW-DT.us_locals1 epgpw_pin=468913 prefer_source=json; clear cache ['468913', '468489']; GT was 'Fox 5 News (previously recorded)'.",
+        "severity": "medium",
+        "owner": "epg",
+        "auto_suggested": true,
+        "registry_case_id": "fox5-nyc-wnyw-654-20260908w",
+        "safe_auto_apply": true
+      },
+      {
+        "action": "Global rule `never_healthy_on_nonempty_alone` already in gateway (since 20260908p): Non-empty /epg/now-next alone must never yield health=healthy with severity=none.",
+        "severity": "info",
+        "owner": "epg",
+        "auto_suggested": true,
+        "registry_rule_id": "never_healthy_on_nonempty_alone"
+      }
+    ],
+    "blind_spots_remaining": [
+      "visual_epg_match",
+      "language_confirmed",
+      "paint_death_observed",
+      "ui_channel_number",
+      "favorites_flag",
+      "guide_search_name_ok",
+      "icon_recognizable",
+      "group_placement_ok",
+      "tivimate_exoplayer visual",
+      "media_session_title"
+    ]
+  },
+  "field_provenance": {
+    "identity": "auto",
+    "stream": "auto",
+    "playback": "mixed",
+    "epg": "mixed",
+    "metadata": "mixed",
+    "ux": "mixed",
+    "verdict": "mixed",
+    "visual_epg_match": "human",
+    "paint_death_observed": "human",
+    "ui_channel_number": "human",
+    "favorites_flag": "human"
+  },
+  "raw_refs": {
+    "playlist_sample_path": "docs/channel-audit/examples/repair-fox5-nyc-654-20260908w/audit-654-20260908T172355Z-artifacts/654-playlist.m3u8",
+    "segment_sample_path": "docs/channel-audit/examples/repair-fox5-nyc-654-20260908w/audit-654-20260908T172355Z-artifacts/654-segment.sample",
+    "frame_path": "docs/channel-audit/examples/repair-fox5-nyc-654-20260908w/audit-654-20260908T172355Z-artifacts/654-frame.jpg",
+    "report_path": "docs/channel-audit/examples/repair-fox5-nyc-654-20260908w/audit-654-20260908T172355Z.json"
+  },
+  "epg_correction": {
+    "registry_path": "data/epg_confirmed_corrections.json",
+    "algorithm_version": "1.1.0",
+    "classification": {
+      "primary_class": "wrong_feed",
+      "classes": [
+        "wrong_feed"
+      ],
+      "confidence": "low",
+      "rationale": [
+        "fallback class"
+      ],
+      "us_like": true,
+      "now_title": "25 Words or Less",
+      "next_title": "TMZ",
+      "tvg_id": "WNYW-DT.us_locals1",
+      "daypart_hint": null,
+      "call_sign": "WNYW",
+      "identity_tier": "station_code_epg",
+      "identity": {
+        "tier": "station_code_epg",
+        "confidence": "high",
+        "rationale": "EPG/tvg pinned by call sign WNYW",
+        "call_sign": "WNYW",
+        "catalog_name": null,
+        "marketing_name_risk": false,
+        "tiers_ranked": [
+          "station_code_visual",
+          "station_code_epg",
+          "network_bug_visual",
+          "catalog_marketing_name"
+        ]
+      }
+    },
+    "exact_cases": [
+      {
+        "case_id": "fox-5-nyc-654-20260908w",
+        "epg_match_status": "visually_confirmed"
+      },
+      {
+        "case_id": "fox5-nyc-wnyw-654-20260908w",
+        "epg_match_status": "visually_confirmed"
+      }
+    ],
+    "suggestions": [
+      {
+        "source": "exact_gateway_case",
+        "case_id": "fox-5-nyc-654-20260908w",
+        "safe_auto_apply": true,
+        "tvg_id": "WNYW-DT.us_locals1",
+        "epgpw_pin": "468913",
+        "prefer_source": "json",
+        "clear_prog_cache": [
+          "468913"
+        ],
+        "apply_global_rules": [
+          "never_healthy_on_nonempty_alone"
+        ],
+        "ground_truth_title": "25 Words or Less",
+        "resolution_version": "20260908w"
+      },
+      {
+        "source": "exact_gateway_case",
+        "case_id": "fox5-nyc-wnyw-654-20260908w",
+        "safe_auto_apply": true,
+        "tvg_id": "WNYW-DT.us_locals1",
+        "epgpw_pin": "468913",
+        "prefer_source": "json",
+        "clear_prog_cache": [
+          "468913",
+          "468489"
+        ],
+        "apply_global_rules": [
+          "prefer_station_code_over_marketing",
+          "visual_bug_overrides_catalog_name",
+          "never_healthy_on_nonempty_alone"
+        ],
+        "ground_truth_title": "Fox 5 News (previously recorded)",
+        "resolution_version": "20260908w"
+      },
+      {
+        "source": "global_rule",
+        "rule_id": "never_healthy_on_nonempty_alone",
+        "safe_auto_apply": true,
+        "summary": "Non-empty /epg/now-next alone must never yield health=healthy with severity=none.",
+        "steps": [
+          "Derive epg_match_status via daypart heuristics",
+          "Require visual_epg_match=match for visually_confirmed",
+          "mismatch_suspected \u2192 health=epg_only_issue"
+        ],
+        "runtime": {
+          "module": "scripts/channel-audit.py",
+          "protocol": "docs/channel-audit/PROTOCOL.md",
+          "since_version": "20260908p",
+          "auto_applied_globally": true
+        },
+        "root_cause_class": "false_healthy"
+      }
+    ],
+    "registered_case": "fox-5-nyc-654-20260908w"
+  }
+}

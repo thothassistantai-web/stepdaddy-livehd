@@ -1,0 +1,12 @@
+{
+  "batch": "tvinsider-smoke",
+  "description": "TV Insider crossmatch smoke: CNN / History / A&E / Freeform / SYFY",
+  "protocol": "epg-crossmatch",
+  "channels": [
+    {"id": "345", "name": "CNN USA", "group": "us-news", "expected_bugs": ["CNN"], "tvinsider_slug": "cnn"},
+    {"id": "322", "name": "History USA", "group": "us-discovery", "expected_bugs": ["History", "HISTORY"], "tvinsider_slug": "history-channel"},
+    {"id": "302", "name": "A&E USA", "group": "us-entertainment", "expected_bugs": ["A&E", "AE"], "tvinsider_slug": "ae"},
+    {"id": "301", "name": "Freeform", "group": "us-entertainment", "expected_bugs": ["Freeform"], "tvinsider_slug": "freeform"},
+    {"id": "373", "name": "SYFY USA", "group": "us-entertainment", "expected_bugs": ["SYFY", "Syfy"], "tvinsider_slug": "syfy"}
+  ]
+}

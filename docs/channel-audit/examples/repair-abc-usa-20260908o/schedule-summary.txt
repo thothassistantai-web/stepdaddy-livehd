@@ -1,0 +1,7 @@
+<class 'dict'> ['channel_id', 'tvg_id', 'has_data', 'programmes', 'fill_pending', 'updated_at']
+count 35
+2026-09-08T14:00:00+00:00 ABC World News Now
+2026-09-08T16:00:00+00:00 Good Morning America First Look
+2026-09-08T16:30:00+00:00 Good Morning America First Look
+2026-09-08T17:00:00+00:00 Good Morning America First Look
+2026-09-08T17:30:00+00:00 Good Morning America First Look

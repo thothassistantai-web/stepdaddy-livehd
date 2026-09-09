@@ -1,0 +1,10 @@
+{
+  "name": "batch-c-deferred-retry",
+  "description": "Quiet deferred playlist-500 retry after Batch C pause (longer ffmpeg timeout)",
+  "channels": [
+    {"id": "371", "name": "MTV USA", "group": "deferred-retry"},
+    {"id": "647", "name": "CMT USA", "group": "deferred-retry"},
+    {"id": "651", "name": "Destination America", "group": "deferred-retry"},
+    {"id": "648", "name": "Boomerang", "group": "deferred-retry"}
+  ]
+}

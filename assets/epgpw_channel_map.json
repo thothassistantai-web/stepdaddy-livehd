@@ -1,0 +1,140 @@
+{
+  "map": {
+    "486840": {
+      "channel_ids": [
+        "360"
+      ],
+      "tvg_id": "5USA.uk",
+      "name": "5 USA",
+      "country": "GB"
+    },
+    "464832": {
+      "channel_ids": [
+        "315"
+      ],
+      "tvg_id": "E.us",
+      "name": "E! Entertainment Television",
+      "country": "US"
+    },
+    "465248": {
+      "channel_ids": [
+        "39"
+      ],
+      "tvg_id": "FoxSports1.us",
+      "name": "Fox Sports 1 USA",
+      "country": "US"
+    },
+    "464783": {
+      "channel_ids": [
+        "318"
+      ],
+      "tvg_id": "GolfChannel.us",
+      "name": "GOLF Channel USA",
+      "country": "US"
+    },
+    "465095": {
+      "channel_ids": [
+        "382"
+      ],
+      "tvg_id": "HGTV.us",
+      "name": "HGTV",
+      "country": "US"
+    },
+    "464984": {
+      "channel_ids": [
+        "384"
+      ],
+      "tvg_id": "FoodNetwork.us",
+      "name": "The Food Network",
+      "country": "US"
+    },
+    "465332": {
+      "channel_ids": [
+        "333"
+      ],
+      "tvg_id": "Showtime.us",
+      "name": "Showtime USA",
+      "country": "US"
+    },
+    "999001": {
+      "channel_ids": [
+        "303"
+      ],
+      "tvg_id": "AMC.us",
+      "name": "AMC USA",
+      "country": "US"
+    },
+    "999002": {
+      "channel_ids": [
+        "371"
+      ],
+      "tvg_id": "MTV.us",
+      "name": "MTV USA",
+      "country": "US"
+    },
+    "464902": {
+      "channel_ids": [
+        "51"
+      ],
+      "tvg_id": "ABC.us",
+      "name": "ABC National Feed",
+      "country": "US",
+      "prefer_source": "json"
+    },
+    "465305": {
+      "channel_ids": [
+        "696"
+      ],
+      "tvg_id": "Comet.us2",
+      "name": "Comet",
+      "country": "US",
+      "prefer_source": "json"
+    },
+    "465290": {
+      "channel_ids": [
+        "326"
+      ],
+      "tvg_id": "LifetimeNetwork.us",
+      "name": "Lifetime HD",
+      "country": "US",
+      "prefer_source": "json"
+    },
+    "464929": {
+      "channel_ids": [
+        "389"
+      ],
+      "tvg_id": "LifetimeMovieNetwork.us",
+      "name": "LMN HD",
+      "country": "US",
+      "prefer_source": "json"
+    },
+    "465323": {
+      "channel_ids": [
+        "662"
+      ],
+      "tvg_id": "Me.TV.Network.us2",
+      "name": "Me TV Network",
+      "country": "US",
+      "prefer_source": "json"
+    },
+    "468913": {
+      "channel_ids": [
+        "768"
+      ],
+      "tvg_id": "WNYW-DT.us_locals1",
+      "name": "WNYW-DT",
+      "country": "US",
+      "prefer_source": "json"
+    },
+    "468489": {
+      "channel_ids": [
+        "654"
+      ],
+      "tvg_id": "WWOR-DT.us_locals1",
+      "name": "WWOR-DT",
+      "country": "US",
+      "prefer_source": "json"
+    }
+  },
+  "notes": "epg.pw channel_id \u2192 gateway. 20260908a: E!/FS1/Golf/HGTV/Food/Showtime pins; AMC 303 sentinel 999001 blocks bad auto-match. 20260908c: MTV 371 sentinel 999002. 20260908o: ABC USA 51 \u2192 464902 ABC National Feed. 20260908p: keep 464902 but prefer per-channel JSON \u2014 US country gzip stamps local slots as +0000 (The View shifted to 23:00Z); overnight World News Now was a false now during ET daytime. 20260908q: Comet USA 696 \u2192 465305 Comet (not WWJS143/Pacific); clear poisoned prog_465305 gzip cache \u2014 Stargate SG-1 @ 16:00Z in JSON vs paid-prog daytime in gzip. 20260908r: Lifetime Network 326 (guide ch 581) \u2192 465290 Lifetime HD JSON \u2014 tvg LifetimeNetwork.us was mapped but empty (no epg.pw pin); GT The Rookie. 20260908s: Lifetime Movie Network 389 (guide ch 580) \u2192 464929 LMN HD JSON \u2014 tvg LifetimeMovieNetwork.us was mapped but empty (no epg.pw pin); GT A Family Nightmare: Secrets on Maple Street. 20260908u: MY9TV USA 654 (playlist/guide #655) \u2192 468489 WWOR-DT JSON \u2014 tvg WWOR-DT.us_locals1 was mapped but empty (no epg.pw pin); do not confuse gateway 655 WETV; GT Maury. 20260908v: METV USA 662 (playlist/guide #622) \u2192 465323 Me TV Network JSON \u2014 was WZVNTV262.us (empty + bridge MeTV.Plus); do not confuse gateway 622 Cosmote Sport 1; GT The Waltons. 20260908w: gateway 654 briefly remapped to WNYW 468913 on a prior visual Fox 5 call (wrong). 20260908x: operator+airing GT restores 654 \u2192 My9 NJ / WWOR-DT / epg.pw 468489 (bug my9nj.com, now The Jennifer Hudson Show); supersedes fox-5-nyc / my9tv-usa cases; FOXNY 768 alone keeps WNYW 468913. Prefer station codes + affiliate bug URL over marketing names; re-verify when operator corrects prior visual calls."
+}

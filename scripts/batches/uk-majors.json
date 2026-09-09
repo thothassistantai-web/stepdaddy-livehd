@@ -1,0 +1,18 @@
+{
+  "batch": "02",
+  "label": "UK majors + Sky Cinema",
+  "channels": [
+    {"id": "356", "name": "BBC One UK", "group": "uk-broadcast"},
+    {"id": "357", "name": "BBC Two UK", "group": "uk-broadcast"},
+    {"id": "350", "name": "ITV1 UK", "group": "uk-broadcast"},
+    {"id": "354", "name": "Channel 4 UK", "group": "uk-broadcast"},
+    {"id": "355", "name": "Channel 5 UK", "group": "uk-broadcast"},
+    {"id": "363", "name": "E4 UK", "group": "uk-broadcast"},
+    {"id": "688", "name": "Film4 UK", "group": "uk-movies"},
+    {"id": "671", "name": "Sky Cinema Premiere UK", "group": "uk-movies"},
+    {"id": "673", "name": "Sky Cinema Hits UK", "group": "uk-movies"},
+    {"id": "672", "name": "Sky Cinema Select UK", "group": "uk-movies"},
+    {"id": "362", "name": "Sky Atlantic UK", "group": "uk-entertainment"},
+    {"id": "349", "name": "BBC News UK", "group": "uk-news"}
+  ]
+}

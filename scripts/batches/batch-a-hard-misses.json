@@ -1,0 +1,20 @@
+{
+  "name": "batch-A-hard-misses",
+  "protocol": "epg-crossmatch",
+  "notes": "Prior hard no / wrong-feed channels + 20260908a verify targets",
+  "channels": [
+    {"id": "321", "name": "HBO USA", "group": "us-premium", "expected_bugs": ["HBO"]},
+    {"id": "689", "name": "HBO2 USA", "group": "us-premium", "expected_bugs": ["HBO", "HBO2"]},
+    {"id": "315", "name": "E! Entertainment", "group": "us-entertainment", "expected_bugs": ["E!", "E"]},
+    {"id": "303", "name": "AMC USA", "group": "us-entertainment", "expected_bugs": ["AMC"]},
+    {"id": "305", "name": "BBC America (BBCA)", "group": "us-entertainment", "expected_bugs": ["BBC America", "BBCA"]},
+    {"id": "339", "name": "Cartoon Network", "group": "us-kids", "expected_bugs": ["Cartoon Network", "CN", "Adult Swim"]},
+    {"id": "312", "name": "Disney Channel", "group": "us-kids", "expected_bugs": ["Disney Channel", "Disney"]},
+    {"id": "314", "name": "Disney XD", "group": "us-kids", "expected_bugs": ["Disney XD", "XD"]},
+    {"id": "301", "name": "Freeform", "group": "us-entertainment", "expected_bugs": ["Freeform"]},
+    {"id": "373", "name": "SYFY USA", "group": "us-entertainment", "expected_bugs": ["SYFY", "Syfy"]},
+    {"id": "328", "name": "National Geographic", "group": "us-discovery", "expected_bugs": ["National Geographic", "NAT GEO", "Nat Geo"]},
+    {"id": "iptv:ec2f935d53f1", "name": "NBC News NOW (720p)", "group": "pluto", "expected_bugs": ["NBC", "NEWS"], "pluto_id": "ec2f935d53f1"},
+    {"id": "333", "name": "Showtime USA", "group": "us-premium", "expected_bugs": ["SHOWTIME", "SHO"]}
+  ]
+}

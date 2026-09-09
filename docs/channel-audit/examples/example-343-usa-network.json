@@ -1,0 +1,286 @@
+{
+  "schema_version": "1.0.0",
+  "audit_id": "audit-343-20260908T094501Z",
+  "audited_at": "2026-09-08T09:45:01.414482+00:00",
+  "auditor": {
+    "tool": "scripts/channel-audit.py",
+    "tool_version": "1.0.0",
+    "operator": "field-ops",
+    "host": "pop-os"
+  },
+  "gateway_base": "https://sdgateway.duckdns.org",
+  "channel_id": "343",
+  "notes": "Example audit with HUMAN fields filled from field-test-s23/decode-invest (2026-09-08). Auto probe + operator visual notes.",
+  "phases": {
+    "identity": "complete",
+    "stream_probe": "complete",
+    "playback": "complete",
+    "epg": "complete",
+    "metadata": "complete",
+    "ux": "complete",
+    "verdict": "complete"
+  },
+  "identity": {
+    "channel_id": "343",
+    "display_name": "USA Network",
+    "aliases": [
+      "USA Network USA",
+      "USA Network (1080p)",
+      "USA Network Latin America (1080p)",
+      "USA Network (576p)",
+      "USA Network",
+      "USA NETWORK"
+    ],
+    "sibling_ids": [
+      "3010",
+      "iptv:0489c4a80090",
+      "iptv:5f71678b101c",
+      "iptv:2071944617be",
+      "dulo:1c57d903-7621-4a90-8716-1b0a6240d8df",
+      "ntv:d6ae234515ed"
+    ],
+    "provider": "DaddyLive",
+    "source": "ddl",
+    "group_title": null,
+    "tags": [
+      "\ud83c\uddfa\ud83c\uddf8",
+      "#entertainment",
+      "#drama"
+    ],
+    "adult": false,
+    "category_hints": [
+      "#entertainment",
+      "#drama"
+    ],
+    "playlist_index": 1182,
+    "playlist_number": 1183,
+    "ui_channel_number": null,
+    "top_network_candidate": true,
+    "favorites_flag": false,
+    "logo_url": "https://sdgateway.duckdns.org/logo/aHR0cHM6Ly9maWxlcy5jYXRib3gubW9lL2Q2Z2RlbC5wbmc=",
+    "logo_http_status": 200,
+    "logo_content_type": "image/png",
+    "logo_bytes": 32382,
+    "logo_load_ok": true,
+    "dead_catalog_flag": false,
+    "cdn_blocked_flag": false,
+    "cdn_tos_blocked_flag": false
+  },
+  "stream": {
+    "paths": {
+      "live_m3u8": "/live/343.m3u8",
+      "stream_m3u8": "/stream/343.m3u8",
+      "content_proxy": "/content/{token}",
+      "embed_page": "/live/343/embed",
+      "embed_m3u8": "/live/343/embed.m3u8",
+      "tivimate_stream": null,
+      "tv_page": "/tv/343",
+      "play_page": "/play/343"
+    },
+    "proxy_mode": "content_proxy",
+    "upstream": {
+      "referer_host": "hamis.romponalis.st",
+      "embed_host": "hamis.romponalis.st",
+      "cdn_host": null,
+      "domain_family": null,
+      "notes": "Primary path is /live/{id}.m3u8 HLS; /embed is manual/debug only."
+    },
+    "headers_needs": {
+      "user_agent_required": true,
+      "referer_required": true,
+      "origin_required": false,
+      "cookie_required": false,
+      "notes": "Gateway injects upstream Referer for /content/; clients should not store secret header values."
+    },
+    "playlist": {
+      "http_status": 200,
+      "reachable": true,
+      "kind": "hls_media",
+      "target_duration_sec": 5.0,
+      "media_sequence": 28617,
+      "has_program_date_time": true,
+      "has_ext_x_map": false,
+      "has_endlist": false,
+      "segment_count_sampled": 6,
+      "segment_ext_hint": "unknown",
+      "bytes": 1399
+    },
+    "abr_ladder": [
+      {
+        "bandwidth_bps": 6040000,
+        "avg_bandwidth_bps": 4830000,
+        "resolution": "1920x1080",
+        "width": 1920,
+        "height": 1080,
+        "frame_rate": 29.97,
+        "codecs": "avc1.640028,mp4a.40.2",
+        "uri_kind": "content_proxy"
+      }
+    ],
+    "active_variant": {
+      "bandwidth_bps": 6040000,
+      "avg_bandwidth_bps": 4830000,
+      "resolution": "1920x1080",
+      "width": 1920,
+      "height": 1080,
+      "frame_rate": 29.97,
+      "codecs": "avc1.640028,mp4a.40.2",
+      "uri_kind": "content_proxy"
+    },
+    "segment_sample": {
+      "http_status": 200,
+      "bytes": 2878656,
+      "container": "mpegts",
+      "mpegts_sync_ok": true,
+      "mpegts_mod188_ok": true,
+      "via_proxy": true
+    },
+    "codecs": {
+      "video_codec": "h264",
+      "video_profile": "High",
+      "video_level": 4.0,
+      "audio_codec": "aac",
+      "audio_profile": "LC",
+      "pix_fmt": "yuv420p",
+      "has_b_frames": 2,
+      "ffprobe_ok": true,
+      "ffprobe_error": null
+    },
+    "picture": {
+      "width": 1920,
+      "height": 1080,
+      "fps": 29.97,
+      "aspect_ratio": "16:9",
+      "scan_type": "progressive",
+      "bitrate_bps": 5528744,
+      "avg_bitrate_bps": 4830000
+    },
+    "stream_status": "paint_death_risk",
+    "status_detail": null
+  },
+  "playback": {
+    "surfaces": {
+      "tv_mse": {
+        "status": "degraded",
+        "notes": "S23 Chrome/WebAPK: green/black paint death on MSE; media-session title still updated."
+      },
+      "play_page": {
+        "status": "untested",
+        "notes": "HTTP 200"
+      },
+      "embed_clappr": {
+        "status": "ok",
+        "notes": "/live/343/embed recovers clear picture (Clappr path)."
+      },
+      "tivimate_exoplayer": {
+        "status": "ok",
+        "notes": "ExoPlayer/TiviMate path healthy on same AVC High 1080 TS."
+      },
+      "apk_native": {
+        "status": "ok",
+        "notes": "Gateway APK \u2192 TiviMate OK."
+      }
+    },
+    "decode_notes": {
+      "mse_vs_exoplayer": "Same AVC High TS often OK on ExoPlayer/TiviMate; Chrome MSE ImageReader starvation risk.",
+      "green_black_history": "Known class: green/black paint on /tv MSE while media-session title still updates.",
+      "paint_death_observed": true,
+      "lighter_variant_available": false,
+      "single_1080_high_risk": true
+    },
+    "ffmpeg_frame": {
+      "ok": true,
+      "path": "docs/channel-audit/examples/audit-343-20260908T094501Z-artifacts/343-frame.jpg",
+      "detail": "frame_bytes=71050"
+    }
+  },
+  "epg": {
+    "tvg_id": "USANetwork.us",
+    "epg_source": "epgpw",
+    "match_method": "epgpw",
+    "match_confidence": 0.97,
+    "epg_has_data": true,
+    "now_title": "Law & Order: Special Victims Unit",
+    "now_start": "2026-09-08T09:00:00+00:00",
+    "now_stop": "2026-09-08T10:00:00+00:00",
+    "next_title": "Law & Order: Special Victims Unit",
+    "schedule_events_sampled": 7,
+    "timezone_notes": "EPG timestamps are UTC ISO-8601 from gateway; confirm local guide TZ on device.",
+    "region_hint": "US",
+    "language_hint": "en-US",
+    "language_confirmed": "en-US",
+    "visual_epg_match": "match",
+    "visual_epg_notes": "On-screen SVU aligned with EPG now title (Law & Order: SVU).",
+    "wrong_feed_suspect": false
+  },
+  "metadata": {
+    "title_now_playing": "Law & Order: Special Victims Unit",
+    "media_session_title": "Law & Or\u2026 (truncated in Chrome media notification during paint-death)",
+    "neighbors": {
+      "prev_id": "7068",
+      "prev_name": "Uruguay Stream",
+      "next_id": "3010",
+      "next_name": "USA Network USA"
+    },
+    "last_verified_at": "2026-09-08T09:45:01.414482+00:00",
+    "verified_by": "scripts/channel-audit.py",
+    "prior_incidents": [
+      "field-test-s23/decode-invest/REPORT.md"
+    ]
+  },
+  "ux": {
+    "mobile_tv_path_notes": "/tv/343 uses hls.js MSE via /live/343.m3u8 \u2192 /content/ proxy.",
+    "tivimate_path_notes": "TiviMate typically uses gateway APK playlist or /live/{id}.m3u8; UI channel number may differ from playlist_number.",
+    "guide_search_name_ok": true,
+    "icon_recognizable": true,
+    "group_placement_ok": true,
+    "numbering_confusion_risk": true
+  },
+  "verdict": {
+    "health": "client_path_issue",
+    "severity": "medium",
+    "summary": "USA 343 live + EPG OK; Chrome /tv MSE paint-death class (High@1080 single rung); embed + TiviMate OK.",
+    "repair_actions": [
+      {
+        "action": "Keep paint\u2192embed grace path enabled on Android /tv for High@1080 single-rung DDL.",
+        "severity": "medium",
+        "owner": "client",
+        "auto_suggested": false
+      },
+      {
+        "action": "Prefer TiviMate/ExoPlayer for critical viewing of this id until MSE path hardened.",
+        "severity": "low",
+        "owner": "operator",
+        "auto_suggested": false
+      },
+      {
+        "action": "Document playlist_number 1183 vs any TiviMate UI number to avoid confusing with unrelated ids.",
+        "severity": "low",
+        "owner": "operator",
+        "auto_suggested": true
+      }
+    ],
+    "blind_spots_remaining": [
+      "ui_channel_number (device-specific)"
+    ]
+  },
+  "field_provenance": {
+    "identity": "auto",
+    "stream": "auto",
+    "playback": "mixed",
+    "epg": "mixed",
+    "metadata": "mixed",
+    "ux": "mixed",
+    "verdict": "mixed",
+    "visual_epg_match": "human",
+    "paint_death_observed": "human",
+    "ui_channel_number": "human",
+    "favorites_flag": "human"
+  },
+  "raw_refs": {
+    "playlist_sample_path": "docs/channel-audit/examples/audit-343-20260908T094501Z-artifacts/343-playlist.m3u8",
+    "segment_sample_path": "docs/channel-audit/examples/audit-343-20260908T094501Z-artifacts/343-segment.sample",
+    "frame_path": "docs/channel-audit/examples/audit-343-20260908T094501Z-artifacts/343-frame.jpg",
+    "report_path": "docs/channel-audit/examples/audit-343-20260908T094501Z.json"
+  }
+}

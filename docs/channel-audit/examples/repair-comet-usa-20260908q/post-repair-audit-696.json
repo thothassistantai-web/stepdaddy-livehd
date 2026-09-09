@@ -1,0 +1,262 @@
+{
+  "schema_version": "1.0.0",
+  "audit_id": "audit-696-20260908T161408Z",
+  "audited_at": "2026-09-08T16:14:08.376569+00:00",
+  "auditor": {
+    "tool": "scripts/channel-audit.py",
+    "tool_version": "1.1.0",
+    "operator": "operator",
+    "host": "pop-os"
+  },
+  "gateway_base": "https://sdgateway.duckdns.org",
+  "channel_id": "696",
+  "notes": null,
+  "phases": {
+    "identity": "complete",
+    "stream_probe": "complete",
+    "playback": "partial",
+    "epg": "complete",
+    "metadata": "partial",
+    "ux": "partial",
+    "verdict": "complete"
+  },
+  "identity": {
+    "channel_id": "696",
+    "display_name": "Comet USA",
+    "aliases": [],
+    "sibling_ids": [],
+    "provider": "DaddyLive",
+    "source": "ddl",
+    "group_title": null,
+    "tags": [
+      "\ud83c\uddfa\ud83c\uddf8",
+      "#movies",
+      "#sciencefiction"
+    ],
+    "adult": false,
+    "category_hints": [
+      "#movies",
+      "#sciencefiction"
+    ],
+    "playlist_index": 250,
+    "playlist_number": 251,
+    "ui_channel_number": 251,
+    "top_network_candidate": true,
+    "favorites_flag": null,
+    "logo_url": "https://sdgateway.duckdns.org/logo/aHR0cHM6Ly9maWxlcy5jYXRib3gubW9lL3NjYnJqai5wbmc=",
+    "logo_http_status": 200,
+    "logo_content_type": "image/png",
+    "logo_bytes": 79330,
+    "logo_load_ok": true,
+    "dead_catalog_flag": false,
+    "cdn_blocked_flag": false,
+    "cdn_tos_blocked_flag": false
+  },
+  "stream": {
+    "paths": {
+      "live_m3u8": "/live/696.m3u8",
+      "stream_m3u8": "/stream/696.m3u8",
+      "content_proxy": "/content/{token}",
+      "embed_page": "/live/696/embed",
+      "embed_m3u8": "/live/696/embed.m3u8",
+      "tivimate_stream": null,
+      "tv_page": "/tv/696",
+      "play_page": "/play/696"
+    },
+    "proxy_mode": "content_proxy",
+    "upstream": {
+      "referer_host": "hamis.romponalis.st",
+      "embed_host": "hamis.romponalis.st",
+      "cdn_host": null,
+      "domain_family": null,
+      "notes": "Primary path is /live/{id}.m3u8 HLS; /embed is manual/debug only."
+    },
+    "headers_needs": {
+      "user_agent_required": true,
+      "referer_required": true,
+      "origin_required": false,
+      "cookie_required": false,
+      "notes": "Gateway injects upstream Referer for /content/; clients should not store secret header values."
+    },
+    "playlist": {
+      "http_status": 200,
+      "reachable": true,
+      "kind": "hls_media",
+      "target_duration_sec": 5.0,
+      "media_sequence": 32392,
+      "has_program_date_time": true,
+      "has_ext_x_map": false,
+      "has_endlist": false,
+      "segment_count_sampled": 6,
+      "segment_ext_hint": "unknown",
+      "bytes": 1399
+    },
+    "abr_ladder": [
+      {
+        "bandwidth_bps": 4600000,
+        "avg_bandwidth_bps": 3680000,
+        "resolution": "1280x720",
+        "width": 1280,
+        "height": 720,
+        "frame_rate": 29.97,
+        "codecs": "avc1.64001f,mp4a.40.2",
+        "uri_kind": "content_proxy"
+      }
+    ],
+    "active_variant": {
+      "bandwidth_bps": 4600000,
+      "avg_bandwidth_bps": 3680000,
+      "resolution": "1280x720",
+      "width": 1280,
+      "height": 720,
+      "frame_rate": 29.97,
+      "codecs": "avc1.64001f,mp4a.40.2",
+      "uri_kind": "content_proxy"
+    },
+    "segment_sample": {
+      "http_status": 200,
+      "bytes": 1937152,
+      "container": "mpegts",
+      "mpegts_sync_ok": true,
+      "mpegts_mod188_ok": true,
+      "via_proxy": true
+    },
+    "codecs": {
+      "video_codec": "h264",
+      "video_profile": "High",
+      "video_level": 3.1,
+      "audio_codec": "aac",
+      "audio_profile": "LC",
+      "pix_fmt": "yuv420p",
+      "has_b_frames": 1,
+      "ffprobe_ok": true,
+      "ffprobe_error": null
+    },
+    "picture": {
+      "width": 1280,
+      "height": 720,
+      "fps": 29.97,
+      "aspect_ratio": "16:9",
+      "scan_type": "progressive",
+      "bitrate_bps": 3853111,
+      "avg_bitrate_bps": 3680000
+    },
+    "stream_status": "live",
+    "status_detail": null
+  },
+  "playback": {
+    "surfaces": {
+      "tv_mse": {
+        "status": "untested",
+        "notes": "HUMAN: confirm MSE paint on /tv; auto only checked page HTTP status=200"
+      },
+      "play_page": {
+        "status": "untested",
+        "notes": "HTTP 200"
+      },
+      "embed_clappr": {
+        "status": "ok",
+        "notes": "HTTP 200 (visual confirm still HUMAN)"
+      },
+      "tivimate_exoplayer": {
+        "status": "n_a",
+        "notes": "HUMAN: ExoPlayer path; Linux gateway may not expose /tivimate-stream/ (APK-local)."
+      },
+      "apk_native": {
+        "status": "untested",
+        "notes": "HUMAN"
+      }
+    },
+    "decode_notes": {
+      "mse_vs_exoplayer": null,
+      "green_black_history": null,
+      "paint_death_observed": null,
+      "lighter_variant_available": false,
+      "single_1080_high_risk": false
+    },
+    "ffmpeg_frame": {
+      "ok": true,
+      "path": "docs/channel-audit/examples/audit-696-20260908T161408Z-artifacts/696-frame.jpg",
+      "detail": "frame_bytes=58400"
+    }
+  },
+  "epg": {
+    "tvg_id": "Comet.us2",
+    "epg_source": "epgpw",
+    "match_method": "epgpw",
+    "match_confidence": 0.97,
+    "epg_has_data": true,
+    "epg_match_status": "visually_confirmed",
+    "daypart_hint": "daytime",
+    "daypart_plausible": true,
+    "now_title": "Stargate SG-1",
+    "now_start": "2026-09-08T16:00:00+00:00",
+    "now_stop": "2026-09-08T17:00:00+00:00",
+    "next_title": "The Librarians",
+    "schedule_events_sampled": 7,
+    "timezone_notes": "Wall clock America/New_York hour=12; gateway now_title='Stargate SG-1'; visual=not_checked.",
+    "region_hint": "US",
+    "language_hint": "en-US",
+    "language_confirmed": null,
+    "visual_epg_match": "match",
+    "visual_epg_notes": "Operator ground truth Stargate; /epg/now-next/696 now_title=Stargate SG-1 (16:00\u201317:00Z) after 20260908q repair.",
+    "wrong_feed_suspect": false
+  },
+  "metadata": {
+    "title_now_playing": "Stargate SG-1",
+    "media_session_title": null,
+    "neighbors": {
+      "prev_id": "310",
+      "prev_name": "Comedy Central",
+      "next_id": "697",
+      "next_name": "Cooking Channel USA"
+    },
+    "last_verified_at": "2026-09-08T16:14:08.376569+00:00",
+    "verified_by": "scripts/channel-audit.py",
+    "prior_incidents": []
+  },
+  "ux": {
+    "mobile_tv_path_notes": "/tv/696 uses hls.js MSE via /live/696.m3u8 \u2192 /content/ proxy.",
+    "tivimate_path_notes": "TiviMate typically uses gateway APK playlist or /live/{id}.m3u8; UI channel number may differ from playlist_number.",
+    "guide_search_name_ok": null,
+    "icon_recognizable": null,
+    "group_placement_ok": null,
+    "numbering_confusion_risk": null
+  },
+  "verdict": {
+    "health": "healthy",
+    "severity": "none",
+    "summary": "Comet USA (696); status=live; health=healthy; epg_now=Stargate SG-1; epg_match=visually_confirmed (operator GT).",
+    "repair_actions": [],
+    "blind_spots_remaining": [
+      "language_confirmed",
+      "paint_death_observed",
+      "ui_channel_number",
+      "favorites_flag",
+      "guide_search_name_ok",
+      "icon_recognizable",
+      "group_placement_ok",
+      "tivimate_exoplayer visual",
+      "media_session_title"
+    ]
+  },
+  "field_provenance": {
+    "identity": "auto",
+    "stream": "auto",
+    "playback": "mixed",
+    "epg": "mixed",
+    "metadata": "mixed",
+    "ux": "mixed",
+    "verdict": "mixed",
+    "visual_epg_match": "human",
+    "paint_death_observed": "human",
+    "ui_channel_number": "human",
+    "favorites_flag": "human"
+  },
+  "raw_refs": {
+    "playlist_sample_path": "docs/channel-audit/examples/audit-696-20260908T161408Z-artifacts/696-playlist.m3u8",
+    "segment_sample_path": "docs/channel-audit/examples/audit-696-20260908T161408Z-artifacts/696-segment.sample",
+    "frame_path": "docs/channel-audit/examples/audit-696-20260908T161408Z-artifacts/696-frame.jpg",
+    "report_path": "docs/channel-audit/examples/audit-696-20260908T161408Z.json"
+  }
+}

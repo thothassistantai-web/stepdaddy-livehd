@@ -1,0 +1,221 @@
+{
+  "schema_version": "1.0.0",
+  "audit_id": null,
+  "audited_at": null,
+  "auditor": {
+    "tool": "scripts/channel-audit.py",
+    "tool_version": "1.0.0",
+    "operator": null,
+    "host": null
+  },
+  "gateway_base": "https://sdgateway.duckdns.org",
+  "channel_id": null,
+  "notes": null,
+  "phases": {
+    "identity": "skipped",
+    "stream_probe": "skipped",
+    "playback": "skipped",
+    "epg": "skipped",
+    "metadata": "skipped",
+    "ux": "skipped",
+    "verdict": "skipped"
+  },
+  "identity": {
+    "channel_id": null,
+    "display_name": null,
+    "aliases": [],
+    "sibling_ids": [],
+    "provider": null,
+    "source": null,
+    "group_title": null,
+    "tags": [],
+    "adult": null,
+    "category_hints": [],
+    "playlist_index": null,
+    "playlist_number": null,
+    "ui_channel_number": null,
+    "top_network_candidate": null,
+    "favorites_flag": null,
+    "logo_url": null,
+    "logo_http_status": null,
+    "logo_content_type": null,
+    "logo_bytes": null,
+    "logo_load_ok": null,
+    "dead_catalog_flag": null,
+    "cdn_blocked_flag": null,
+    "cdn_tos_blocked_flag": null
+  },
+  "stream": {
+    "paths": {
+      "live_m3u8": null,
+      "stream_m3u8": null,
+      "content_proxy": "/content/{token}",
+      "embed_page": null,
+      "embed_m3u8": null,
+      "tivimate_stream": null,
+      "tv_page": null,
+      "play_page": null
+    },
+    "proxy_mode": null,
+    "upstream": {
+      "referer_host": null,
+      "embed_host": null,
+      "cdn_host": null,
+      "domain_family": null,
+      "notes": null
+    },
+    "headers_needs": {
+      "user_agent_required": null,
+      "referer_required": null,
+      "origin_required": null,
+      "cookie_required": null,
+      "notes": "High-level only; never store secret header values."
+    },
+    "playlist": {
+      "http_status": null,
+      "reachable": null,
+      "kind": null,
+      "target_duration_sec": null,
+      "media_sequence": null,
+      "has_program_date_time": null,
+      "has_ext_x_map": null,
+      "has_endlist": null,
+      "segment_count_sampled": null,
+      "segment_ext_hint": null,
+      "bytes": null
+    },
+    "abr_ladder": [],
+    "active_variant": null,
+    "segment_sample": {
+      "http_status": null,
+      "bytes": null,
+      "container": null,
+      "mpegts_sync_ok": null,
+      "mpegts_mod188_ok": null,
+      "via_proxy": null
+    },
+    "codecs": {
+      "video_codec": null,
+      "video_profile": null,
+      "video_level": null,
+      "audio_codec": null,
+      "audio_profile": null,
+      "pix_fmt": null,
+      "has_b_frames": null,
+      "ffprobe_ok": null,
+      "ffprobe_error": null
+    },
+    "picture": {
+      "width": null,
+      "height": null,
+      "fps": null,
+      "aspect_ratio": null,
+      "scan_type": null,
+      "bitrate_bps": null,
+      "avg_bitrate_bps": null
+    },
+    "stream_status": null,
+    "status_detail": null
+  },
+  "playback": {
+    "surfaces": {
+      "tv_mse": { "status": "untested", "notes": null },
+      "play_page": { "status": "untested", "notes": null },
+      "embed_clappr": { "status": "untested", "notes": null },
+      "tivimate_exoplayer": { "status": "untested", "notes": null },
+      "apk_native": { "status": "untested", "notes": null }
+    },
+    "decode_notes": {
+      "mse_vs_exoplayer": null,
+      "green_black_history": null,
+      "paint_death_observed": null,
+      "lighter_variant_available": null,
+      "single_1080_high_risk": null
+    },
+    "ffmpeg_frame": {
+      "ok": null,
+      "path": null,
+      "detail": null
+    }
+  },
+  "epg": {
+    "tvg_id": null,
+    "epg_source": null,
+    "match_method": null,
+    "match_confidence": null,
+    "epg_has_data": null,
+    "epg_match_status": "api_only",
+    "daypart_hint": null,
+    "daypart_plausible": null,
+    "now_title": null,
+    "now_start": null,
+    "now_stop": null,
+    "next_title": null,
+    "schedule_events_sampled": null,
+    "timezone_notes": "EPG timestamps are UTC ISO-8601 from gateway; confirm local guide TZ on device. Non-empty now/next is not proof of correct feed.",
+    "region_hint": null,
+    "language_hint": null,
+    "language_confirmed": null,
+    "visual_epg_match": "not_checked",
+    "visual_epg_notes": null,
+    "wrong_feed_suspect": null
+  },
+  "metadata": {
+    "title_now_playing": null,
+    "media_session_title": null,
+    "neighbors": {
+      "prev_id": null,
+      "prev_name": null,
+      "next_id": null,
+      "next_name": null
+    },
+    "last_verified_at": null,
+    "verified_by": "scripts/channel-audit.py",
+    "prior_incidents": []
+  },
+  "ux": {
+    "mobile_tv_path_notes": null,
+    "tivimate_path_notes": null,
+    "guide_search_name_ok": null,
+    "icon_recognizable": null,
+    "group_placement_ok": null,
+    "numbering_confusion_risk": null
+  },
+  "verdict": {
+    "health": "unknown",
+    "severity": "none",
+    "summary": null,
+    "repair_actions": [],
+    "blind_spots_remaining": [
+      "visual_epg_match",
+      "language_confirmed",
+      "paint_death_observed",
+      "ui_channel_number",
+      "favorites_flag",
+      "guide_search_name_ok",
+      "icon_recognizable",
+      "group_placement_ok",
+      "tivimate_exoplayer visual",
+      "media_session_title"
+    ]
+  },
+  "field_provenance": {
+    "identity": "auto",
+    "stream": "auto",
+    "playback": "mixed",
+    "epg": "mixed",
+    "metadata": "mixed",
+    "ux": "mixed",
+    "verdict": "mixed",
+    "visual_epg_match": "human",
+    "paint_death_observed": "human",
+    "ui_channel_number": "human",
+    "favorites_flag": "human"
+  },
+  "raw_refs": {
+    "playlist_sample_path": null,
+    "segment_sample_path": null,
+    "frame_path": null,
+    "report_path": null
+  }
+}

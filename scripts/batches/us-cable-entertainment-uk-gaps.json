@@ -1,0 +1,24 @@
+{
+  "name": "us-cable-entertainment-uk-gaps",
+  "description": "Batch 06: next US cable/entertainment majors not yet matched + UK gaps; deferred CBS Sports/TLC/TruTV retried at end",
+  "channels": [
+    {"id": "656", "name": "IFC TV USA", "group": "us-entertainment"},
+    {"id": "306", "name": "BET USA", "group": "us-entertainment"},
+    {"id": "305", "name": "BBC America (BBCA)", "group": "us-entertainment"},
+    {"id": "339", "name": "Cartoon Network", "group": "us-kids"},
+    {"id": "312", "name": "Disney Channel", "group": "us-kids"},
+    {"id": "314", "name": "Disney XD", "group": "us-kids"},
+    {"id": "647", "name": "CMT USA", "group": "us-entertainment"},
+    {"id": "332", "name": "Oxygen True Crime", "group": "us-entertainment"},
+    {"id": "651", "name": "Destination America", "group": "us-discovery"},
+    {"id": "311", "name": "Discovery Life Channel", "group": "us-discovery"},
+    {"id": "348", "name": "Dave", "group": "uk-entertainment"},
+    {"id": "687", "name": "Gold UK", "group": "uk-entertainment"},
+    {"id": "361", "name": "Sky Witness HD", "group": "uk-entertainment"},
+    {"id": "351", "name": "ITV2 UK", "group": "uk-broadcast"},
+    {"id": "352", "name": "ITV3 UK", "group": "uk-broadcast"},
+    {"id": "3008", "name": "CBS Sports Network", "group": "retry-deferred"},
+    {"id": "337", "name": "TLC USA", "group": "retry-deferred"},
+    {"id": "dulo:dea0486a-1e3f-4b4a-82e3-208252e89397", "name": "TruTV", "group": "retry-deferred"}
+  ]
+}

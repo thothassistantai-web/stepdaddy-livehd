@@ -1,0 +1,13 @@
+{
+  "name": "batch-c-remaining-ent-retries",
+  "description": "Batch C crossmatch: remaining us-sports-kids-ent-gaps after Batch B (GSN/MTV/VH1) + polite CMT/Destination America playlist retries",
+  "protocol": "epg-crossmatch",
+  "channels": [
+    {"id": "319", "name": "Game Show Network", "group": "us-entertainment"},
+    {"id": "371", "name": "MTV USA", "group": "us-entertainment-verify-20260908b"},
+    {"id": "344", "name": "VH1 USA", "group": "us-entertainment"},
+    {"id": "647", "name": "CMT USA", "group": "retry-deferred"},
+    {"id": "651", "name": "Destination America", "group": "retry-deferred"},
+    {"id": "648", "name": "Boomerang", "group": "retry-deferred-batch-B"}
+  ]
+}

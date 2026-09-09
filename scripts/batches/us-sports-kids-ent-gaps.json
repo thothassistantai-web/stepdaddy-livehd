@@ -1,0 +1,23 @@
+{
+  "name": "us-sports-kids-ent-gaps",
+  "description": "Batch 07: US sports networks + kids/entertainment majors not yet tested; polite retry of two batch-06 playlist deferrals",
+  "channels": [
+    {"id": "288", "name": "ESPNews", "group": "us-sports"},
+    {"id": "316", "name": "ESPNU USA", "group": "us-sports"},
+    {"id": "397", "name": "BIG TEN Network (BTN USA)", "group": "us-sports"},
+    {"id": "399", "name": "MLB Network USA", "group": "us-sports"},
+    {"id": "404", "name": "NBA TV USA", "group": "us-sports"},
+    {"id": "405", "name": "NFL Network", "group": "us-sports"},
+    {"id": "385", "name": "SEC Network USA", "group": "us-sports"},
+    {"id": "40", "name": "Tennis Channel", "group": "us-sports"},
+    {"id": "295", "name": "Adult Swim", "group": "us-kids"},
+    {"id": "648", "name": "Boomerang", "group": "us-kids"},
+    {"id": "329", "name": "NICK JR", "group": "us-kids"},
+    {"id": "298", "name": "FXX USA", "group": "us-entertainment"},
+    {"id": "319", "name": "Game Show Network", "group": "us-entertainment"},
+    {"id": "371", "name": "MTV USA", "group": "us-entertainment"},
+    {"id": "344", "name": "VH1 USA", "group": "us-entertainment"},
+    {"id": "647", "name": "CMT USA", "group": "retry-deferred"},
+    {"id": "651", "name": "Destination America", "group": "retry-deferred"}
+  ]
+}

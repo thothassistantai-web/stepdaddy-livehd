@@ -1,0 +1,371 @@
+{
+  "schema_version": "1.0.0",
+  "audit_id": "audit-389-20260908T164302Z",
+  "audited_at": "2026-09-08T16:43:02.605090+00:00",
+  "auditor": {
+    "tool": "scripts/channel-audit.py",
+    "tool_version": "1.2.0",
+    "operator": null,
+    "host": "pop-os"
+  },
+  "gateway_base": "https://sdgateway.duckdns.org",
+  "channel_id": "389",
+  "notes": "Guide/TiviMate ch 580 = gateway 389 Lifetime Movies Network. Do not confuse with gateway 580 Arena Sport 4 Croatia or Lifetime Network 326 (guide 581).",
+  "phases": {
+    "identity": "complete",
+    "stream_probe": "complete",
+    "playback": "partial",
+    "epg": "complete",
+    "metadata": "partial",
+    "ux": "partial",
+    "verdict": "partial"
+  },
+  "identity": {
+    "channel_id": "389",
+    "display_name": "Lifetime Movies Network",
+    "aliases": [
+      "Lifetime Movies (1080p)",
+      "Lifetime Movies Love & Drama (1080p)"
+    ],
+    "sibling_ids": [
+      "iptv:a72b450b6082",
+      "iptv:50c6d1dbfbb3"
+    ],
+    "provider": "DaddyLive",
+    "source": "ddl",
+    "group_title": null,
+    "tags": [
+      "\ud83c\uddfa\ud83c\uddf8",
+      "#movies",
+      "#drama"
+    ],
+    "adult": false,
+    "category_hints": [
+      "#movies",
+      "#drama"
+    ],
+    "playlist_index": 579,
+    "playlist_number": 580,
+    "ui_channel_number": 580,
+    "top_network_candidate": true,
+    "favorites_flag": null,
+    "logo_url": "https://sdgateway.duckdns.org/logo/aHR0cHM6Ly9maWxlcy5jYXRib3gubW9lLzE3a2Jpdy5wbmc=",
+    "logo_http_status": 200,
+    "logo_content_type": "image/png",
+    "logo_bytes": 22187,
+    "logo_load_ok": true,
+    "dead_catalog_flag": false,
+    "cdn_blocked_flag": false,
+    "cdn_tos_blocked_flag": false
+  },
+  "stream": {
+    "paths": {
+      "live_m3u8": "/live/389.m3u8",
+      "stream_m3u8": "/stream/389.m3u8",
+      "content_proxy": "/content/{token}",
+      "embed_page": "/live/389/embed",
+      "embed_m3u8": "/live/389/embed.m3u8",
+      "tivimate_stream": null,
+      "tv_page": "/tv/389",
+      "play_page": "/play/389"
+    },
+    "proxy_mode": "content_proxy",
+    "upstream": {
+      "referer_host": "hamis.romponalis.st",
+      "embed_host": "hamis.romponalis.st",
+      "cdn_host": null,
+      "domain_family": null,
+      "notes": "Primary path is /live/{id}.m3u8 HLS; /embed is manual/debug only."
+    },
+    "headers_needs": {
+      "user_agent_required": true,
+      "referer_required": true,
+      "origin_required": false,
+      "cookie_required": false,
+      "notes": "Gateway injects upstream Referer for /content/; clients should not store secret header values."
+    },
+    "playlist": {
+      "http_status": 200,
+      "reachable": true,
+      "kind": "hls_media",
+      "target_duration_sec": 5.0,
+      "media_sequence": 32821,
+      "has_program_date_time": true,
+      "has_ext_x_map": false,
+      "has_endlist": false,
+      "segment_count_sampled": 6,
+      "segment_ext_hint": "unknown",
+      "bytes": 1399
+    },
+    "abr_ladder": [
+      {
+        "bandwidth_bps": 4140000,
+        "avg_bandwidth_bps": 3310000,
+        "resolution": "1280x720",
+        "width": 1280,
+        "height": 720,
+        "frame_rate": 59.94,
+        "codecs": "avc1.640029,mp4a.40.2",
+        "uri_kind": "content_proxy"
+      }
+    ],
+    "active_variant": {
+      "bandwidth_bps": 4140000,
+      "avg_bandwidth_bps": 3310000,
+      "resolution": "1280x720",
+      "width": 1280,
+      "height": 720,
+      "frame_rate": 59.94,
+      "codecs": "avc1.640029,mp4a.40.2",
+      "uri_kind": "content_proxy"
+    },
+    "segment_sample": {
+      "http_status": 200,
+      "bytes": 1858944,
+      "container": "mpegts",
+      "mpegts_sync_ok": true,
+      "mpegts_mod188_ok": true,
+      "via_proxy": true
+    },
+    "codecs": {
+      "video_codec": "h264",
+      "video_profile": "High",
+      "video_level": 4.1,
+      "audio_codec": "aac",
+      "audio_profile": "LC",
+      "pix_fmt": "yuv420p",
+      "has_b_frames": 1,
+      "ffprobe_ok": true,
+      "ffprobe_error": null
+    },
+    "picture": {
+      "width": 1280,
+      "height": 720,
+      "fps": 59.94,
+      "aspect_ratio": "16:9",
+      "scan_type": "progressive",
+      "bitrate_bps": 3713545,
+      "avg_bitrate_bps": 3310000
+    },
+    "stream_status": "live",
+    "status_detail": null
+  },
+  "playback": {
+    "surfaces": {
+      "tv_mse": {
+        "status": "untested",
+        "notes": "HUMAN: confirm MSE paint on /tv; auto only checked page HTTP status=200"
+      },
+      "play_page": {
+        "status": "untested",
+        "notes": "HTTP 200"
+      },
+      "embed_clappr": {
+        "status": "ok",
+        "notes": "HTTP 200 (visual confirm still HUMAN)"
+      },
+      "tivimate_exoplayer": {
+        "status": "n_a",
+        "notes": "HUMAN: ExoPlayer path; Linux gateway may not expose /tivimate-stream/ (APK-local)."
+      },
+      "apk_native": {
+        "status": "untested",
+        "notes": "HUMAN"
+      }
+    },
+    "decode_notes": {
+      "mse_vs_exoplayer": null,
+      "green_black_history": null,
+      "paint_death_observed": null,
+      "lighter_variant_available": false,
+      "single_1080_high_risk": false
+    },
+    "ffmpeg_frame": {
+      "ok": true,
+      "path": "docs/channel-audit/examples/audit-389-20260908T164302Z-artifacts/389-frame.jpg",
+      "detail": "frame_bytes=84301"
+    }
+  },
+  "epg": {
+    "tvg_id": "LifetimeMovieNetwork.us",
+    "epg_source": "epgpw",
+    "match_method": "epgpw",
+    "match_confidence": 0.97,
+    "epg_has_data": true,
+    "epg_match_status": "visually_confirmed",
+    "daypart_hint": null,
+    "daypart_plausible": true,
+    "now_title": "A Family Nightmare: Secrets on Maple Street",
+    "now_start": "2026-09-08T16:00:00+00:00",
+    "now_stop": "2026-09-08T18:00:00+00:00",
+    "next_title": "Murder for Mortgage: Secrets on Maple Street",
+    "schedule_events_sampled": 4,
+    "timezone_notes": "EPG timestamps are UTC ISO-8601 from gateway; confirm local guide TZ on device. Non-empty now/next is not proof of correct feed.",
+    "region_hint": "US",
+    "language_hint": "en-US",
+    "language_confirmed": null,
+    "visual_epg_match": "match",
+    "visual_epg_notes": null,
+    "wrong_feed_suspect": null,
+    "ground_truth_title": "A Family Nightmare: Secrets on Maple Street"
+  },
+  "metadata": {
+    "title_now_playing": "A Family Nightmare: Secrets on Maple Street",
+    "media_session_title": null,
+    "neighbors": {
+      "prev_id": "962",
+      "prev_name": "LCI France",
+      "next_id": "326",
+      "next_name": "Lifetime Network"
+    },
+    "last_verified_at": "2026-09-08T16:43:02.605090+00:00",
+    "verified_by": "scripts/channel-audit.py",
+    "prior_incidents": []
+  },
+  "ux": {
+    "mobile_tv_path_notes": "/tv/389 uses hls.js MSE via /live/389.m3u8 \u2192 /content/ proxy.",
+    "tivimate_path_notes": "TiviMate typically uses gateway APK playlist or /live/{id}.m3u8; UI channel number may differ from playlist_number.",
+    "guide_search_name_ok": null,
+    "icon_recognizable": null,
+    "group_placement_ok": null,
+    "numbering_confusion_risk": null
+  },
+  "verdict": {
+    "health": "healthy",
+    "severity": "none",
+    "summary": "Lifetime Movies Network (389); status=live; health=healthy; 1280x720; epg_now=A Family Nightmare: Secrets on Maple Street; epg_match=visually_confirmed",
+    "repair_actions": [
+      {
+        "action": "Global rule `prefer_json_over_us_gzip` already in gateway (since 20260908p): Prefer epg.pw per-channel JSON over US/CA country gzip. US XMLTV often stamps local wall-clock slots as +0000 (~8h shift).",
+        "severity": "info",
+        "owner": "epg",
+        "auto_suggested": true,
+        "registry_rule_id": "prefer_json_over_us_gzip"
+      },
+      {
+        "action": "Global rule `no_gzip_overwrite_prog_json` already in gateway (since 20260908q): When JSON is preferred, country gzip must not write shared prog_{id}.json (poisons later JSON reads).",
+        "severity": "info",
+        "owner": "epg",
+        "auto_suggested": true,
+        "registry_rule_id": "no_gzip_overwrite_prog_json"
+      },
+      {
+        "action": "Global rule `never_healthy_on_nonempty_alone` already in gateway (since 20260908p): Non-empty /epg/now-next alone must never yield health=healthy with severity=none.",
+        "severity": "info",
+        "owner": "epg",
+        "auto_suggested": true,
+        "registry_rule_id": "never_healthy_on_nonempty_alone"
+      }
+    ],
+    "blind_spots_remaining": [
+      "visual_epg_match",
+      "language_confirmed",
+      "paint_death_observed",
+      "ui_channel_number",
+      "favorites_flag",
+      "guide_search_name_ok",
+      "icon_recognizable",
+      "group_placement_ok",
+      "tivimate_exoplayer visual",
+      "media_session_title"
+    ]
+  },
+  "field_provenance": {
+    "identity": "auto",
+    "stream": "auto",
+    "playback": "mixed",
+    "epg": "mixed",
+    "metadata": "mixed",
+    "ux": "mixed",
+    "verdict": "mixed",
+    "visual_epg_match": "human",
+    "paint_death_observed": "human",
+    "ui_channel_number": "human",
+    "favorites_flag": "human"
+  },
+  "raw_refs": {
+    "playlist_sample_path": "docs/channel-audit/examples/audit-389-20260908T164302Z-artifacts/389-playlist.m3u8",
+    "segment_sample_path": "docs/channel-audit/examples/audit-389-20260908T164302Z-artifacts/389-segment.sample",
+    "frame_path": "docs/channel-audit/examples/audit-389-20260908T164302Z-artifacts/389-frame.jpg",
+    "report_path": "docs/channel-audit/examples/audit-389-20260908T164302Z.json"
+  },
+  "epg_correction": {
+    "registry_path": "data/epg_confirmed_corrections.json",
+    "algorithm_version": "1.0.0",
+    "classification": {
+      "primary_class": "wrong_feed",
+      "classes": [
+        "wrong_feed"
+      ],
+      "confidence": "low",
+      "rationale": [
+        "fallback class"
+      ],
+      "us_like": true,
+      "now_title": "A Family Nightmare: Secrets on Maple Street",
+      "next_title": "Murder for Mortgage: Secrets on Maple Street",
+      "tvg_id": "LifetimeMovieNetwork.us",
+      "daypart_hint": null
+    },
+    "exact_cases": [],
+    "suggestions": [
+      {
+        "source": "global_rule",
+        "rule_id": "prefer_json_over_us_gzip",
+        "safe_auto_apply": true,
+        "summary": "Prefer epg.pw per-channel JSON over US/CA country gzip. US XMLTV often stamps local wall-clock slots as +0000 (~8h shift).",
+        "steps": [
+          "Set EPGPW_PREFER_JSON=1 (gateway default since 20260908p)",
+          "Fetch prog_{epg_id} via JSON API first",
+          "Use country gzip only as fallback for ids still missing after JSON",
+          "Never treat non-empty now/next from gzip alone as healthy"
+        ],
+        "runtime": {
+          "env": {
+            "EPGPW_PREFER_JSON": "1"
+          },
+          "module": "StepDaddyLiveHD/supplements/epgpw_epg.py",
+          "since_version": "20260908p",
+          "auto_applied_globally": true
+        },
+        "root_cause_class": "gzip_tz_poison"
+      },
+      {
+        "source": "global_rule",
+        "rule_id": "no_gzip_overwrite_prog_json",
+        "safe_auto_apply": true,
+        "summary": "When JSON is preferred, country gzip must not write shared prog_{id}.json (poisons later JSON reads).",
+        "steps": [
+          "Pass write_prog_cache=None to gzip loader when PREFER_JSON_OVER_REGION_GZ",
+          "Clear poisoned prog_{id}.json after a confirmed gzip_tz_poison repair",
+          "Optionally clear prog_gz_US / region gzip index if it re-seeds bad rows"
+        ],
+        "runtime": {
+          "module": "StepDaddyLiveHD/supplements/epgpw_epg.py",
+          "since_version": "20260908q",
+          "auto_applied_globally": true
+        },
+        "root_cause_class": "gzip_tz_poison"
+      },
+      {
+        "source": "global_rule",
+        "rule_id": "never_healthy_on_nonempty_alone",
+        "safe_auto_apply": true,
+        "summary": "Non-empty /epg/now-next alone must never yield health=healthy with severity=none.",
+        "steps": [
+          "Derive epg_match_status via daypart heuristics",
+          "Require visual_epg_match=match for visually_confirmed",
+          "mismatch_suspected \u2192 health=epg_only_issue"
+        ],
+        "runtime": {
+          "module": "scripts/channel-audit.py",
+          "protocol": "docs/channel-audit/PROTOCOL.md",
+          "since_version": "20260908p",
+          "auto_applied_globally": true
+        },
+        "root_cause_class": "false_healthy"
+      }
+    ],
+    "registered_case": "lifetime-movies-network-389-20260908s"
+  }
+}

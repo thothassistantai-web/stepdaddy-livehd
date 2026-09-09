@@ -1,0 +1,123 @@
+{
+  "data": {
+    "compartment-id": "ocid1.tenancy.oc1..aaaaaaaa2lwh3rakqjzon7dwbojoxzzudrj6alvv234hptgbfin5ccqvtjkq",
+    "defined-tags": {
+      "Oracle-Tags": {
+        "CreatedBy": "default/mrmaineventshow@gmail.com",
+        "CreatedOn": "2026-08-14T04:32:00.691Z"
+      }
+    },
+    "display-name": "Default Security List for vcn-20260814-0031",
+    "egress-security-rules": [
+      {
+        "description": null,
+        "destination": "0.0.0.0/0",
+        "destination-type": "CIDR_BLOCK",
+        "icmp-options": null,
+        "is-stateless": false,
+        "protocol": "all",
+        "tcp-options": null,
+        "udp-options": null
+      }
+    ],
+    "freeform-tags": {},
+    "id": "ocid1.securitylist.oc1.iad.aaaaaaaa6huhrgnfzgynqpgc3tcx6benewmbh6uwkbsdfkt3d2a5jniida4a",
+    "ingress-security-rules": [
+      {
+        "description": null,
+        "icmp-options": null,
+        "is-stateless": false,
+        "protocol": "6",
+        "source": "0.0.0.0/0",
+        "source-type": "CIDR_BLOCK",
+        "tcp-options": {
+          "destination-port-range": {
+            "max": 22,
+            "min": 22
+          },
+          "source-port-range": null
+        },
+        "udp-options": null
+      },
+      {
+        "description": null,
+        "icmp-options": {
+          "code": 4,
+          "type": 3
+        },
+        "is-stateless": false,
+        "protocol": "1",
+        "source": "0.0.0.0/0",
+        "source-type": "CIDR_BLOCK",
+        "tcp-options": null,
+        "udp-options": null
+      },
+      {
+        "description": null,
+        "icmp-options": {
+          "code": null,
+          "type": 3
+        },
+        "is-stateless": false,
+        "protocol": "1",
+        "source": "10.0.0.0/16",
+        "source-type": "CIDR_BLOCK",
+        "tcp-options": null,
+        "udp-options": null
+      },
+      {
+        "description": "TEMPORARY GLOBAL StepDaddyLiveHD :3000 — revert to 173.52.220.92/32 when done",
+        "icmp-options": null,
+        "is-stateless": false,
+        "protocol": "6",
+        "source": "0.0.0.0/0",
+        "source-type": "CIDR_BLOCK",
+        "tcp-options": {
+          "destination-port-range": {
+            "max": 3000,
+            "min": 3000
+          },
+          "source-port-range": null
+        },
+        "udp-options": null
+      },
+      {
+        "description": "Caddy HTTP for Lets Encrypt + HTTPS redirect",
+        "icmp-options": null,
+        "is-stateless": false,
+        "protocol": "6",
+        "source": "0.0.0.0/0",
+        "source-type": "CIDR_BLOCK",
+        "tcp-options": {
+          "destination-port-range": {
+            "max": 80,
+            "min": 80
+          },
+          "source-port-range": null
+        },
+        "udp-options": null
+      },
+      {
+        "description": "Caddy HTTPS StepDaddyLiveHD gateway",
+        "icmp-options": null,
+        "is-stateless": false,
+        "protocol": "6",
+        "source": "0.0.0.0/0",
+        "source-type": "CIDR_BLOCK",
+        "tcp-options": {
+          "destination-port-range": {
+            "max": 443,
+            "min": 443
+          },
+          "source-port-range": null
+        },
+        "udp-options": null
+      }
+    ],
+    "lifecycle-state": "AVAILABLE",
+    "system-tags": null,
+    "time-created": "2026-08-14T04:32:00.786000+00:00",
+    "vcn-id": "ocid1.vcn.oc1.iad.amaaaaaal2j6c4ya6parxivn43rwyvg4tr7tj6jz3wjdq2kmyqpezlbvhwoq"
+  },
+  "etag": "af06341c"
+}

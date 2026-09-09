@@ -1,0 +1,8 @@
+fastapi==0.118.0
+uvicorn==0.37.0
+httpx[http2]==0.28.1
+curl-cffi==0.13.0
+python-dateutil==2.9.0
+pydantic==2.11.10
+starlette==0.48.0
+anyio==4.11.0
