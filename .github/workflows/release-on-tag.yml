@@ -1,0 +1,62 @@
+name: Release on tag
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish as a GitHub Release'
+        required: true
+        default: '20260909h'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve tag
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: StepDaddy LiveHD ${{ steps.meta.outputs.tag }}
+          body: |
+            ## StepDaddy LiveHD `${{ steps.meta.outputs.tag }}`
+
+            Feature batch release (gateway live through this VERSION):
+
+            - **Category drawer** — guide category filtering UI
+            - **Root → /tv** — default entry routes into the TV player
+            - **Casting** — Cast / AirPlay support
+            - **Channel report** — ⋯ menu report flow
+            - **Voice search** — mic-driven search
+            - **Always Sunny fix** — VOD 2710 playback
+            - **Portrait X-Ray + VOD** — portrait detail / X-Ray VOD
+            - **EPG S#E#** — episode codes in guide/player
+            - **Portrait title row** — compact title chrome
+            - **Genre taxonomy** — channel genre + distributor taxonomy
+
+            Deployed bundle/VERSION aligned with public gateway health (`bundle_version`).
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
