@@ -1,7 +1,15 @@
 /**
- * Smart TV ↔ Music audio focus: short crossfades so Live TV and Music don't clash.
- * Scopes to #v (live program) volume + StepDaddyMusicPlayer audio volume.
- * Does not fight party AV ducking when speech duck is actively holding TV low.
+ * Smart TV ↔ Music audio focus (Auto focus Music ↔ TV).
+ * Default ON (localStorage sd_music_tv_audio_smart). Toggle in Settings → Playback.
+ *
+ * When ON:
+ *  - Music focus (play / sheet open / dock expand / Music zone pointer) → mute+pause live TV
+ *    via Media Session release path; short crossfade on volumes.
+ *  - Music Stop + TV reclaim → unmute and jump-to-live (not stale buffer).
+ * When OFF: both may play; Media Session ownership still updates but TV is not paused.
+ *
+ * Party: does not fight active speech-duck (partyHoldingDuck) — leaves TV near duck level.
+ * Dynamic focus uses the same zones as Media Session (sheet, dock, TV chrome).
  */
 (function () {
   if (window.SDMusicTvAudio) return;

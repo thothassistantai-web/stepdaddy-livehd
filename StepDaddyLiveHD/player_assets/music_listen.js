@@ -232,9 +232,63 @@
       return streamInflight[videoId];
     }
 
-    /** Prefetch next 1–2 upcoming Listen stream tokens; warm Autoplay when Up Next is thin. */
+    /** Hidden <audio> elements that soft-buffer server_proxy / HLS URLs before track change. */
+    var proxyWarmers = {};
+    function warmProxyStream(url) {
+      if (!url || typeof url !== "string") return;
+      if (url.indexOf("ytembed:") === 0) return;
+      try {
+        if (proxyWarmers[url]) return;
+        // Cap concurrent warmers — keep newest 3.
+        var keys = Object.keys(proxyWarmers);
+        if (keys.length >= 3) {
+          var drop = keys[0];
+          try {
+            proxyWarmers[drop].pause();
+            proxyWarmers[drop].removeAttribute("src");
+            proxyWarmers[drop].load();
+          } catch (eDrop) {}
+          delete proxyWarmers[drop];
+        }
+        var a = document.createElement("audio");
+        a.preload = "auto";
+        a.muted = true;
+        a.volume = 0;
+        a.setAttribute("playsinline", "");
+        a.setAttribute("aria-hidden", "true");
+        a.style.cssText = "position:absolute;width:0;height:0;opacity:0;pointer-events:none";
+        a.src = url;
+        try {
+          a.load();
+        } catch (eLoad) {}
+        proxyWarmers[url] = a;
+      } catch (eWarm) {}
+    }
+
+    function warmResolvedStream(data) {
+      if (!data) return;
+      var url = data.stream_url || "";
+      if (!url) return;
+      if (url.indexOf("ytembed:") === 0 || data.mode === "yt_embed") {
+        var vid = url.indexOf("ytembed:") === 0 ? url.slice(8).trim() : String(data.videoId || "");
+        if (!vid) return;
+        try {
+          var P = sharedPlayer();
+          var inst = P && P._instance;
+          if (inst && typeof inst.prewarmYtEmbed === "function") inst.prewarmYtEmbed(vid);
+          else if (window.SDMusicYtEmbed && typeof window.SDMusicYtEmbed.prewarm === "function") {
+            window.SDMusicYtEmbed.prewarm(vid);
+          }
+        } catch (eYt) {}
+        return;
+      }
+      warmProxyStream(url);
+    }
+
+    /** Prefetch next 1–2 upcoming Listen streams; warm Autoplay when Up Next is thin.
+     *  Always warm media (server_proxy buffer + ytembed cue) — don't wait for track change. */
     function prewarmUpcoming(n) {
-      n = n == null ? 2 : n;
+      n = n == null ? 2 : Math.max(1, Math.min(3, n | 0));
       var u = UQ();
       if (!u) return;
       try {
@@ -245,23 +299,35 @@
           if (upLen <= 2 || apLen < 6) u.prepareAutoplay();
         }
       } catch (ePrep) {}
-      var ids = [];
+      var items = [];
       try {
         var flat = typeof u.asFlatQueue === "function" ? u.asFlatQueue() : [];
         flat.slice(1, 1 + n).forEach(function (t) {
           var id = t && (t.videoId || t.id);
-          if (id) ids.push(String(id));
+          if (id) items.push({ id: String(id), track: t });
         });
       } catch (eFlat) {
         try {
           var peek = u.peekNext && u.peekNext();
-          if (peek && (peek.videoId || peek.id)) ids.push(String(peek.videoId || peek.id));
+          if (peek && (peek.videoId || peek.id)) {
+            items.push({ id: String(peek.videoId || peek.id), track: peek });
+          }
         } catch (ePeek) {}
       }
-      ids.forEach(function (id) {
-        if (cacheGet(id) || streamInflight[id]) return;
+      items.forEach(function (it) {
+        var cached = cacheGet(it.id);
+        if (cached) {
+          warmResolvedStream(cached);
+          return;
+        }
+        if (streamInflight[it.id]) {
+          streamInflight[it.id].then(warmResolvedStream).catch(function () {});
+          return;
+        }
         // Prewarm must never block current/next ready playback.
-        fetchStream(id, { timeoutMs: 10000 }).catch(function () {});
+        fetchStream(it.id, { timeoutMs: 10000, track: it.track || {} })
+          .then(warmResolvedStream)
+          .catch(function () {});
       });
     }
 
@@ -453,7 +519,10 @@
             P._instance.audio.currentTime = 0;
           } catch (eR) {}
         }
-        // Keep warming while current track plays — continuous Autoplay refill
+        // Keep warming while current track plays — continuous Autoplay refill + media warm
+        setTimeout(function () {
+          prewarmUpcoming(2);
+        }, 400);
         setTimeout(function () {
           prewarmUpcoming(2);
         }, 1200);
@@ -467,7 +536,29 @@
           try {
             if (u && typeof u.prepareAutoplay === "function") u.prepareAutoplay();
           } catch (eTop2) {}
+          prewarmUpcoming(2);
         }, 15000);
+        // Mid-track nudge: when ~45s remain (or halfway), re-warm next for low-latency change.
+        try {
+          var Pinst = P && P._instance;
+          if (Pinst && Pinst.audio && !Pinst.__sdPrewarmProgHooked) {
+            Pinst.__sdPrewarmProgHooked = true;
+            var lastProgWarm = 0;
+            Pinst.audio.addEventListener("timeupdate", function () {
+              try {
+                var a = Pinst.audio;
+                if (!a || !isFinite(a.duration) || a.duration < 8) return;
+                var left = a.duration - (a.currentTime || 0);
+                var now = Date.now();
+                if (now - lastProgWarm < 8000) return;
+                if (left < 45 || a.currentTime / a.duration > 0.55) {
+                  lastProgWarm = now;
+                  prewarmUpcoming(2);
+                }
+              } catch (eTu) {}
+            });
+          }
+        } catch (eHook) {}
         syncFlatFromUnified();
       } catch (e) {
         try {

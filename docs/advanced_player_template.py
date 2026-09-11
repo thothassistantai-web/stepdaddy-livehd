@@ -31,16 +31,16 @@ def render_advanced_tv_page(channel_id: str | None = None) -> str:
   <link rel="apple-touch-icon" href="/tv-assets/icon-192.png"/>
   <title>TV Guide — StepDaddyLiveHD</title>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
-  <link rel="stylesheet" href="/tv-assets/player.css?v=20260911l"/>
-  <link rel="stylesheet" href="/tv-assets/player_guide_sheet.css?v=20260911l"/>
-  <link rel="stylesheet" href="/tv-assets/player_features.css?v=20260911l"/>
-  <link rel="stylesheet" href="/tv-assets/player_cinema.css?v=20260911l"/>
-  <link rel="stylesheet" href="/tv-assets/music_radio.css?v=20260911l"/>
-  <link rel="stylesheet" href="/tv-assets/music_listen.css?v=20260911l"/>
-  <link rel="stylesheet" href="/tv-assets/music_library.css?v=20260911l"/>
-  <link rel="stylesheet" href="/tv-assets/music_home.css?v=20260911l"/>
-  <link rel="stylesheet" href="/tv-assets/music_player.css?v=20260911l"/>
-  <link rel="stylesheet" href="/tv-assets/music_search.css?v=20260911l"/>
+  <link rel="stylesheet" href="/tv-assets/player.css?v=20260911n"/>
+  <link rel="stylesheet" href="/tv-assets/player_guide_sheet.css?v=20260911n"/>
+  <link rel="stylesheet" href="/tv-assets/player_features.css?v=20260911n"/>
+  <link rel="stylesheet" href="/tv-assets/player_cinema.css?v=20260911n"/>
+  <link rel="stylesheet" href="/tv-assets/music_radio.css?v=20260911n"/>
+  <link rel="stylesheet" href="/tv-assets/music_listen.css?v=20260911n"/>
+  <link rel="stylesheet" href="/tv-assets/music_library.css?v=20260911n"/>
+  <link rel="stylesheet" href="/tv-assets/music_home.css?v=20260911n"/>
+  <link rel="stylesheet" href="/tv-assets/music_player.css?v=20260911n"/>
+  <link rel="stylesheet" href="/tv-assets/music_search.css?v=20260911n"/>
   <script src="/tv-assets/pull_reload.js" defer></script>
   <script src="/tv-assets/mobile_shell.js" defer></script>
 """
@@ -589,9 +589,9 @@ def render_advanced_tv_page(channel_id: str | None = None) -> str:
   </div>
 """
         + """  <script>window.SD_INITIAL_CHANNEL = """ + initial + """;</script>
-  <script>window.__SD_BUNDLE_VERSION = "20260911l";</script>
-  <script src="/tv-assets/pin_unlock.js?v=20260911l"></script>
-  <script src="/tv-assets/player_bundle.js?v=20260911l"></script>
+  <script>window.__SD_BUNDLE_VERSION = "20260911n";</script>
+  <script src="/tv-assets/pin_unlock.js?v=20260911n"></script>
+  <script src="/tv-assets/player_bundle.js?v=20260911n"></script>
 </body>
 </html>
 """

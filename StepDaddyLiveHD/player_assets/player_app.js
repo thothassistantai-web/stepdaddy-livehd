@@ -9416,6 +9416,7 @@
     window.__sdQ3ChannelRecover = recoverCurrentChannelFromQ3;
     window.__sdQ3ClassifyRecover = classifyQ3RecoverAction;
     window.__sdQ3SettleGraceActive = q3SettleGraceActive;
+    window.__sdJumpToLiveEdge = jumpToLiveEdge;
     window.__sdUserPausedLive = () => !!userPausedLive;
     window.__sdMarkUserPausedLive = (on) => { userPausedLive = !!on; };
 

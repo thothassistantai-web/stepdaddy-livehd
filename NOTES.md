@@ -1,3 +1,10 @@
+## Music prewarm + TV mini Stop + Auto focus + PTR 20260911n
+- Prewarm: next 1–2 Listen streams always (server_proxy audio buffer + `ytembed` YT.cue); Autoplay when Up Next thin; mid-track re-warm.
+- TV mini dock: safe-area, z-index 52, contrast, 10-foot targets, explicit **Stop** (`.smp-stop`) matching Music chrome (not swipe-down-to-stop).
+- Settings → Playback **Auto focus Music ↔ TV** (default on): Music focus pauses live; Stop Music resumes jump-to-live. Party speech-duck still wins while talking.
+- Pull-to-refresh rework: `pull_reload.js` → `SDPullRefresh` registry (deny Music sheet/search/expanded, VOD/party/modals; allow TV at scrollTop≈0 + strong hold); axis-lock + overscroll-behavior.
+- Report: `/tmp/music-prewarm-minip-autofocus.json`
+
 ## Music Listen VPS-only (no laptop SOCKS) 20260911m
 
 - Goal: eliminate home `pproxy` + `ssh -R :11080` dependency for Music Listen.

@@ -1044,7 +1044,10 @@
       '<input type="checkbox" id="sdPipToggle"/></label>' +
       '<label class="setting-row" for="sdAutoPipBg"><span class="setting-label">Auto PiP when leaving tab' +
       '<span class="setting-sub">Keep playing in PiP / background when switching apps</span></span>' +
-      '<input type="checkbox" id="sdAutoPipBg"/></label></div>';
+      '<input type="checkbox" id="sdAutoPipBg"/></label>' +
+      '<label class="setting-row" for="sdAutoFocusMusicTv"><span class="setting-label">Auto focus Music ↔ TV' +
+      '<span class="setting-sub">Music focus pauses live TV; Stop Music + return to TV jumps to live. Off = both can play. Party speech-duck still wins while talking.</span></span>' +
+      '<input type="checkbox" id="sdAutoFocusMusicTv"/></label></div>';
     const dataSec = host.querySelector(".settings-section:last-child");
     if (dataSec) host.insertBefore(block, dataSec);
     else host.appendChild(block);
@@ -1057,6 +1060,7 @@
     const pref = document.getElementById("sdPrefetchToggle");
     const pip = document.getElementById("sdPipToggle");
     const autoPip = document.getElementById("sdAutoPipBg");
+    const autoFocus = document.getElementById("sdAutoFocusMusicTv");
     if (lang) lang.value = lsGet(LS_SUB_LANG, "en");
     if (size) size.value = lsGet(LS_SUB_SIZE, "22");
     if (color) color.value = lsGet(LS_SUB_COLOR, "#ffffff");
@@ -1075,6 +1079,17 @@
       const autoPipDef = isAndroid ? "0" : "1";
       if (autoPip) autoPip.checked = lsGet(LS_AUTO_PIP_BG, autoPipDef) !== "0";
     }
+    if (autoFocus) {
+      try {
+        const on =
+          window.SDMusicTvAudio && typeof window.SDMusicTvAudio.isEnabled === "function"
+            ? window.SDMusicTvAudio.isEnabled()
+            : lsGet("sd_music_tv_audio_smart", "1") !== "0";
+        autoFocus.checked = !!on;
+      } catch (eAf) {
+        autoFocus.checked = true;
+      }
+    }
     const save = () => {
       if (lang) lsSet(LS_SUB_LANG, lang.value.trim());
       if (size) lsSet(LS_SUB_SIZE, String(size.value || "22"));
@@ -1092,9 +1107,20 @@
       if (pref) lsSet(LS_PREFETCH, pref.checked ? "1" : "0");
       if (pip) lsSet(LS_PIP, pip.checked ? "1" : "0");
       if (autoPip) lsSet(LS_AUTO_PIP_BG, autoPip.checked ? "1" : "0");
+      if (autoFocus) {
+        try {
+          if (window.SDMusicTvAudio && typeof window.SDMusicTvAudio.setEnabled === "function") {
+            window.SDMusicTvAudio.setEnabled(!!autoFocus.checked);
+          } else {
+            lsSet("sd_music_tv_audio_smart", autoFocus.checked ? "1" : "0");
+          }
+        } catch (eSaveAf) {
+          lsSet("sd_music_tv_audio_smart", autoFocus.checked ? "1" : "0");
+        }
+      }
       applySubStyle();
     };
-    [lang, size, color, pos, pname, pav, pref, pip, autoPip].forEach((el) => {
+    [lang, size, color, pos, pname, pav, pref, pip, autoPip, autoFocus].forEach((el) => {
       if (el) el.addEventListener("change", save);
     });
   }
@@ -1655,12 +1681,59 @@
     } catch (e) {}
   }
 
+  function autoFocusMusicTvEnabled() {
+    try {
+      if (window.SDMusicTvAudio && typeof window.SDMusicTvAudio.isEnabled === "function") {
+        return !!window.SDMusicTvAudio.isEnabled();
+      }
+    } catch (e) {}
+    try {
+      var v = localStorage.getItem("sd_music_tv_audio_smart");
+      if (v == null) return true;
+      return v === "1" || v === "true";
+    } catch (e2) {
+      return true;
+    }
+  }
+
+  function resumeLiveAfterMusic() {
+    try {
+      if (watchingVodNow()) {
+        var vv = document.getElementById("v");
+        if (vv && vv.paused) {
+          var pVod = vv.play();
+          if (pVod && typeof pVod.catch === "function") pVod.catch(function () {});
+        }
+        return;
+      }
+      // Prefer jump-to-live (not stale buffer), then recover, then plain play.
+      if (typeof window.__sdJumpToLiveEdge === "function") {
+        var jumped = window.__sdJumpToLiveEdge();
+        if (jumped) return;
+      }
+      if (typeof window.__sdRecoverLivePlayback === "function") {
+        try {
+          window.__sdRecoverLivePlayback("music-autofocus-stop");
+          return;
+        } catch (eRec) {}
+      }
+      var v = document.getElementById("v");
+      if (v && v.paused) {
+        var p = v.play();
+        if (p && typeof p.catch === "function") p.catch(function () {});
+      }
+    } catch (e) {}
+  }
+
   function releaseTvMediaSessionForMusic() {
     setMediaSessionOwner("music");
     try {
       window.__sdMusicMediaActive = true;
       window.__sdMusicHoldsTv = true;
     } catch (e) {}
+    // Settings → Auto focus Music ↔ TV (default on). When off, claim session only —
+    // do not mute/pause live (both may play; party duck still independent).
+    if (!autoFocusMusicTvEnabled()) return;
     // Mute + pause #v once. Never call v.play() here — that steals Android audio
     // focus from Music and leaves playbackState needing a notification Play tap.
     // Soft-hold play→pause churn (20260910y) caused the "must press Play" glitch.
@@ -1724,6 +1797,15 @@
       // Non-force: paused Music dock still owns while audio focus is music.
       if (!force && audioFocusNow() === "music" && musicHasControllableTrack()) return false;
     } catch (e) {}
+    var wasHeldForMusic = false;
+    try {
+      var v0 = document.getElementById("v");
+      wasHeldForMusic = !!(
+        v0 &&
+        v0.dataset &&
+        (v0.dataset.sdPausedForMusic === "1" || v0.dataset.sdSoftHoldForMusic === "1")
+      );
+    } catch (eHeld) {}
     try {
       window.__sdMusicMediaActive = false;
       window.__sdMusicHoldsTv = false;
@@ -1769,6 +1851,12 @@
     } catch (e4) {}
     // Publish immediately — do not blank metadata first (that delays Android MediaStyle).
     syncMediaSession(true);
+    // After Music Stop (force) + Auto focus: resume live at edge, not stale VOD-like position.
+    if (force && wasHeldForMusic && autoFocusMusicTvEnabled()) {
+      try {
+        setTimeout(resumeLiveAfterMusic, 48);
+      } catch (eRes) {}
+    }
     return true;
   }
 

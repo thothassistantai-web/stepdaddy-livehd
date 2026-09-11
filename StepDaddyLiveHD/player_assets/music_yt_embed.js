@@ -250,6 +250,67 @@
     return _toggle.apply(this, arguments);
   };
 
+  /**
+   * Preload YT IFrame API + cue next videoId (muted, no autoplay) so track-change
+   * starts with lower delay. Safe to call repeatedly; never starts audible playback.
+   */
+  P.prototype.prewarmYtEmbed = function (videoId) {
+    var id = String(videoId || "").trim();
+    if (!id || id.length < 6) return Promise.resolve();
+    var self = this;
+    if (self._ytWarmId === id && self._ytWarmPlayer) return Promise.resolve();
+    return ensureYtApi().then(function () {
+      if (!window.YT || !window.YT.Player) return;
+      try {
+        if (!self._ytWarmHost || !self._ytWarmHost.isConnected) {
+          var host = document.createElement("div");
+          host.className = "smp-yt-warm";
+          host.setAttribute("aria-hidden", "true");
+          host.style.cssText =
+            "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;z-index:-1;";
+          var inner = document.createElement("div");
+          inner.id = "smp-yt-warm-" + Math.random().toString(36).slice(2, 9);
+          host.appendChild(inner);
+          document.body.appendChild(host);
+          self._ytWarmHost = host;
+          self._ytWarmInnerId = inner.id;
+        }
+        if (self._ytWarmPlayer && typeof self._ytWarmPlayer.cueVideoById === "function") {
+          self._ytWarmPlayer.cueVideoById({ videoId: id, startSeconds: 0 });
+          self._ytWarmId = id;
+          return;
+        }
+        self._ytWarmPlayer = new window.YT.Player(self._ytWarmInnerId, {
+          width: "1",
+          height: "1",
+          videoId: id,
+          playerVars: {
+            autoplay: 0,
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
+            modestbranding: 1,
+            playsinline: 1,
+            rel: 0,
+            iv_load_policy: 3,
+            origin: location.origin,
+          },
+          events: {
+            onReady: function (ev) {
+              try {
+                ev.target.mute();
+                if (typeof ev.target.cueVideoById === "function") {
+                  ev.target.cueVideoById({ videoId: id, startSeconds: 0 });
+                }
+              } catch (eR) {}
+              self._ytWarmId = id;
+            },
+          },
+        });
+      } catch (eWarm) {}
+    });
+  };
+
   var _play = P.prototype.play;
   P.prototype.play = function (payload) {
     payload = payload || {};
@@ -271,10 +332,29 @@
     var base = _play.call(this, payload);
     this.state.streamUrl = saved;
     this.state.mode = "yt_embed";
+    // Kick API early if not already prewarmed for this id.
+    try {
+      if (typeof self.prewarmYtEmbed === "function") self.prewarmYtEmbed(embedId);
+    } catch (ePw) {}
     return Promise.resolve(base)
       .catch(function () {})
       .then(function () {
         return self._startYtEmbed(embedId);
       });
+  };
+
+  window.SDMusicYtEmbed = {
+    prewarm: function (videoId) {
+      try {
+        var inst = window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance;
+        if (inst && typeof inst.prewarmYtEmbed === "function") return inst.prewarmYtEmbed(videoId);
+        // Ensure player shell exists so warm host can attach.
+        if (window.StepDaddyMusicPlayer && typeof window.StepDaddyMusicPlayer.ensure === "function") {
+          var p = window.StepDaddyMusicPlayer.ensure(document.body);
+          if (p && typeof p.prewarmYtEmbed === "function") return p.prewarmYtEmbed(videoId);
+        }
+      } catch (e) {}
+      return ensureYtApi();
+    },
   };
 })();

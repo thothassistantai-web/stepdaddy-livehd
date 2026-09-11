@@ -205,7 +205,7 @@
       '    <button type="button" class="smp-dock-skip" data-smp-prev aria-label="Previous"><span class="smp-ico" aria-hidden="true">⏮</span></button>' +
       '    <button type="button" class="smp-main" data-smp-toggle aria-label="Play/Pause"><span class="smp-ico" aria-hidden="true">▶</span></button>' +
       '    <button type="button" class="smp-dock-skip" data-smp-next aria-label="Next"><span class="smp-ico" aria-hidden="true">⏭</span></button>' +
-      '    <button type="button" class="ghost" data-smp-stop aria-label="Stop"><span class="smp-ico" aria-hidden="true">■</span></button>' +
+      '    <button type="button" class="smp-stop" data-smp-stop aria-label="Stop" title="Stop"><span class="smp-ico" aria-hidden="true">■</span></button>' +
       "  </div>" +
       '  <div class="smp-dock-progress" data-smp-dock-progress hidden aria-hidden="true"><i data-smp-dock-progress-bar></i></div>' +
       '  <audio data-smp-audio playsinline webkit-playsinline preload="none" crossorigin="anonymous"></audio>' +

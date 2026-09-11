@@ -1,5 +1,4 @@
-;
-/* === player_app === */
+;/* === player_app === */
     const INITIAL_CHANNEL = window.SD_INITIAL_CHANNEL || "";
     const LS_LAST = "sd_last_tv_channel";
     const LS_LAST_PLACE = "sd_last_place";
@@ -9418,6 +9417,7 @@
     window.__sdQ3ChannelRecover = recoverCurrentChannelFromQ3;
     window.__sdQ3ClassifyRecover = classifyQ3RecoverAction;
     window.__sdQ3SettleGraceActive = q3SettleGraceActive;
+    window.__sdJumpToLiveEdge = jumpToLiveEdge;
     window.__sdUserPausedLive = () => !!userPausedLive;
     window.__sdMarkUserPausedLive = (on) => { userPausedLive = !!on; };
 
@@ -10710,7 +10710,7 @@
     boot();
   
 
-/* === player_features === */
+;/* === player_features === */
 /* player_features: continue watching, subtitles, hls controls, prefetch, last-good */
 (function sdFeaturesBoot() {
   const LS_LAST_GOOD = "sd_vod_last_good";
@@ -11757,7 +11757,10 @@
       '<input type="checkbox" id="sdPipToggle"/></label>' +
       '<label class="setting-row" for="sdAutoPipBg"><span class="setting-label">Auto PiP when leaving tab' +
       '<span class="setting-sub">Keep playing in PiP / background when switching apps</span></span>' +
-      '<input type="checkbox" id="sdAutoPipBg"/></label></div>';
+      '<input type="checkbox" id="sdAutoPipBg"/></label>' +
+      '<label class="setting-row" for="sdAutoFocusMusicTv"><span class="setting-label">Auto focus Music ↔ TV' +
+      '<span class="setting-sub">Music focus pauses live TV; Stop Music + return to TV jumps to live. Off = both can play. Party speech-duck still wins while talking.</span></span>' +
+      '<input type="checkbox" id="sdAutoFocusMusicTv"/></label></div>';
     const dataSec = host.querySelector(".settings-section:last-child");
     if (dataSec) host.insertBefore(block, dataSec);
     else host.appendChild(block);
@@ -11770,6 +11773,7 @@
     const pref = document.getElementById("sdPrefetchToggle");
     const pip = document.getElementById("sdPipToggle");
     const autoPip = document.getElementById("sdAutoPipBg");
+    const autoFocus = document.getElementById("sdAutoFocusMusicTv");
     if (lang) lang.value = lsGet(LS_SUB_LANG, "en");
     if (size) size.value = lsGet(LS_SUB_SIZE, "22");
     if (color) color.value = lsGet(LS_SUB_COLOR, "#ffffff");
@@ -11788,6 +11792,17 @@
       const autoPipDef = isAndroid ? "0" : "1";
       if (autoPip) autoPip.checked = lsGet(LS_AUTO_PIP_BG, autoPipDef) !== "0";
     }
+    if (autoFocus) {
+      try {
+        const on =
+          window.SDMusicTvAudio && typeof window.SDMusicTvAudio.isEnabled === "function"
+            ? window.SDMusicTvAudio.isEnabled()
+            : lsGet("sd_music_tv_audio_smart", "1") !== "0";
+        autoFocus.checked = !!on;
+      } catch (eAf) {
+        autoFocus.checked = true;
+      }
+    }
     const save = () => {
       if (lang) lsSet(LS_SUB_LANG, lang.value.trim());
       if (size) lsSet(LS_SUB_SIZE, String(size.value || "22"));
@@ -11805,9 +11820,20 @@
       if (pref) lsSet(LS_PREFETCH, pref.checked ? "1" : "0");
       if (pip) lsSet(LS_PIP, pip.checked ? "1" : "0");
       if (autoPip) lsSet(LS_AUTO_PIP_BG, autoPip.checked ? "1" : "0");
+      if (autoFocus) {
+        try {
+          if (window.SDMusicTvAudio && typeof window.SDMusicTvAudio.setEnabled === "function") {
+            window.SDMusicTvAudio.setEnabled(!!autoFocus.checked);
+          } else {
+            lsSet("sd_music_tv_audio_smart", autoFocus.checked ? "1" : "0");
+          }
+        } catch (eSaveAf) {
+          lsSet("sd_music_tv_audio_smart", autoFocus.checked ? "1" : "0");
+        }
+      }
       applySubStyle();
     };
-    [lang, size, color, pos, pname, pav, pref, pip, autoPip].forEach((el) => {
+    [lang, size, color, pos, pname, pav, pref, pip, autoPip, autoFocus].forEach((el) => {
       if (el) el.addEventListener("change", save);
     });
   }
@@ -12368,12 +12394,59 @@
     } catch (e) {}
   }
 
+  function autoFocusMusicTvEnabled() {
+    try {
+      if (window.SDMusicTvAudio && typeof window.SDMusicTvAudio.isEnabled === "function") {
+        return !!window.SDMusicTvAudio.isEnabled();
+      }
+    } catch (e) {}
+    try {
+      var v = localStorage.getItem("sd_music_tv_audio_smart");
+      if (v == null) return true;
+      return v === "1" || v === "true";
+    } catch (e2) {
+      return true;
+    }
+  }
+
+  function resumeLiveAfterMusic() {
+    try {
+      if (watchingVodNow()) {
+        var vv = document.getElementById("v");
+        if (vv && vv.paused) {
+          var pVod = vv.play();
+          if (pVod && typeof pVod.catch === "function") pVod.catch(function () {});
+        }
+        return;
+      }
+      // Prefer jump-to-live (not stale buffer), then recover, then plain play.
+      if (typeof window.__sdJumpToLiveEdge === "function") {
+        var jumped = window.__sdJumpToLiveEdge();
+        if (jumped) return;
+      }
+      if (typeof window.__sdRecoverLivePlayback === "function") {
+        try {
+          window.__sdRecoverLivePlayback("music-autofocus-stop");
+          return;
+        } catch (eRec) {}
+      }
+      var v = document.getElementById("v");
+      if (v && v.paused) {
+        var p = v.play();
+        if (p && typeof p.catch === "function") p.catch(function () {});
+      }
+    } catch (e) {}
+  }
+
   function releaseTvMediaSessionForMusic() {
     setMediaSessionOwner("music");
     try {
       window.__sdMusicMediaActive = true;
       window.__sdMusicHoldsTv = true;
     } catch (e) {}
+    // Settings → Auto focus Music ↔ TV (default on). When off, claim session only —
+    // do not mute/pause live (both may play; party duck still independent).
+    if (!autoFocusMusicTvEnabled()) return;
     // Mute + pause #v once. Never call v.play() here — that steals Android audio
     // focus from Music and leaves playbackState needing a notification Play tap.
     // Soft-hold play→pause churn (20260910y) caused the "must press Play" glitch.
@@ -12437,6 +12510,15 @@
       // Non-force: paused Music dock still owns while audio focus is music.
       if (!force && audioFocusNow() === "music" && musicHasControllableTrack()) return false;
     } catch (e) {}
+    var wasHeldForMusic = false;
+    try {
+      var v0 = document.getElementById("v");
+      wasHeldForMusic = !!(
+        v0 &&
+        v0.dataset &&
+        (v0.dataset.sdPausedForMusic === "1" || v0.dataset.sdSoftHoldForMusic === "1")
+      );
+    } catch (eHeld) {}
     try {
       window.__sdMusicMediaActive = false;
       window.__sdMusicHoldsTv = false;
@@ -12482,6 +12564,12 @@
     } catch (e4) {}
     // Publish immediately — do not blank metadata first (that delays Android MediaStyle).
     syncMediaSession(true);
+    // After Music Stop (force) + Auto focus: resume live at edge, not stale VOD-like position.
+    if (force && wasHeldForMusic && autoFocusMusicTvEnabled()) {
+      try {
+        setTimeout(resumeLiveAfterMusic, 48);
+      } catch (eRes) {}
+    }
     return true;
   }
 
@@ -13903,7 +13991,7 @@
   };
 })();
 
-/* === player_cinema === */
+;/* === player_cinema === */
 /* Cinema player advanced: settings/themes, gestures, sources, dual audio, download, xray */
 (function sdCinemaBoot() {
   const LS_PLAYER_THEME = "sd_player_theme";
@@ -14847,7 +14935,7 @@
   if (document.getElementById("hlsChrome")) onChromeReady();
 })();
 
-/* === player_embed === */
+;/* === player_embed === */
 /* Embed hybrid chrome: slim OSD + YouTube postMessage bridge when available */
 (function sdEmbedBoot() {
   let embedActive = false;
@@ -15552,7 +15640,7 @@
   };
 })();
 
-/* === player_party_av_media === */
+;/* === player_party_av_media === */
 /* player_party_av_media: gUM constraints, local mirror prefs, speech VAD + TV ducking */
 (function sdPartyAvMediaBoot() {
   const LS_DUCK = "sd_party_av_duck";
@@ -15812,7 +15900,7 @@
   };
 })();
 
-/* === player_party_av === */
+;/* === player_party_av === */
 /* player_party_av: built-in WebRTC mesh + movable/resizable AV overlay (Jitsi optional) */
 (function sdPartyAvBoot() {
   const LS_PROVIDER = "sd_party_av_provider";
@@ -17497,7 +17585,7 @@
   };
 })();
 
-/* === player_party === */
+;/* === player_party === */
 /* player_party: QR share/remote, watch party chat/reactions/HLS clock sync */
 (function sdPartyBoot() {
   const REACTIONS = ["👍", "👎", "❤️", "😂", "😮", "👏", "🎉", "🔥"];
@@ -20900,7 +20988,7 @@
   };
 })();
 
-/* === player_party_invite === */
+;/* === player_party_invite === */
 /* player_party_invite: Invite sheet — Link | Wi‑Fi nearby | Near me (NFC/QR) */
 (function sdPartyInviteBoot() {
   const LS_LAN_VISIBLE = "sd_party_lan_visible";
@@ -21548,7 +21636,7 @@
   };
 })();
 
-/* === player_party_home === */
+;/* === player_party_home === */
 /* player_party_home: Watch Party slide-up hub — Create / Enter code / Nearby / Resume / Public / Presence */
 (function sdPartyHomeBoot() {
   const LS_PARTY_NAME = "sd_party_name";
@@ -22436,7 +22524,7 @@
   }
 })();
 
-/* === music_player === */
+;/* === music_player === */
 /**
  * StepDaddy Music — unified Spotify-like player for Radio + Listen.
  * Single <audio> engine; optional muted looping <video> in art after still fade.
@@ -22644,7 +22732,7 @@
       '    <button type="button" class="smp-dock-skip" data-smp-prev aria-label="Previous"><span class="smp-ico" aria-hidden="true">⏮</span></button>' +
       '    <button type="button" class="smp-main" data-smp-toggle aria-label="Play/Pause"><span class="smp-ico" aria-hidden="true">▶</span></button>' +
       '    <button type="button" class="smp-dock-skip" data-smp-next aria-label="Next"><span class="smp-ico" aria-hidden="true">⏭</span></button>' +
-      '    <button type="button" class="ghost" data-smp-stop aria-label="Stop"><span class="smp-ico" aria-hidden="true">■</span></button>' +
+      '    <button type="button" class="smp-stop" data-smp-stop aria-label="Stop" title="Stop"><span class="smp-ico" aria-hidden="true">■</span></button>' +
       "  </div>" +
       '  <div class="smp-dock-progress" data-smp-dock-progress hidden aria-hidden="true"><i data-smp-dock-progress-bar></i></div>' +
       '  <audio data-smp-audio playsinline webkit-playsinline preload="none" crossorigin="anonymous"></audio>' +
@@ -24472,7 +24560,7 @@
   };
 })();
 
-/* === music_player_actions === */
+;/* === music_player_actions === */
 /**
  * StepDaddy Music player — expanded-sheet actions (fav/share/lyrics/Listen/queue/info).
  * Patches StepDaddyMusicPlayer prototype after music_player.js.
@@ -25841,7 +25929,7 @@
   };
 })();
 
-/* === music_player_video === */
+;/* === music_player_video === */
 /**
  * StepDaddy Music player — video preview / fullscreen state machine.
  * States: none → arming → preview → fullscreen → (resume preview | none)
@@ -26225,7 +26313,7 @@
   };
 })();
 
-/* === music_yt_embed === */
+;/* === music_yt_embed === */
 /**
  * YouTube IFrame embed playback for Listen when VPS yt-dlp is bot-gated.
  * Patches StepDaddyMusicPlayer after music_player.js (+ video).
@@ -26478,6 +26566,67 @@
     return _toggle.apply(this, arguments);
   };
 
+  /**
+   * Preload YT IFrame API + cue next videoId (muted, no autoplay) so track-change
+   * starts with lower delay. Safe to call repeatedly; never starts audible playback.
+   */
+  P.prototype.prewarmYtEmbed = function (videoId) {
+    var id = String(videoId || "").trim();
+    if (!id || id.length < 6) return Promise.resolve();
+    var self = this;
+    if (self._ytWarmId === id && self._ytWarmPlayer) return Promise.resolve();
+    return ensureYtApi().then(function () {
+      if (!window.YT || !window.YT.Player) return;
+      try {
+        if (!self._ytWarmHost || !self._ytWarmHost.isConnected) {
+          var host = document.createElement("div");
+          host.className = "smp-yt-warm";
+          host.setAttribute("aria-hidden", "true");
+          host.style.cssText =
+            "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;z-index:-1;";
+          var inner = document.createElement("div");
+          inner.id = "smp-yt-warm-" + Math.random().toString(36).slice(2, 9);
+          host.appendChild(inner);
+          document.body.appendChild(host);
+          self._ytWarmHost = host;
+          self._ytWarmInnerId = inner.id;
+        }
+        if (self._ytWarmPlayer && typeof self._ytWarmPlayer.cueVideoById === "function") {
+          self._ytWarmPlayer.cueVideoById({ videoId: id, startSeconds: 0 });
+          self._ytWarmId = id;
+          return;
+        }
+        self._ytWarmPlayer = new window.YT.Player(self._ytWarmInnerId, {
+          width: "1",
+          height: "1",
+          videoId: id,
+          playerVars: {
+            autoplay: 0,
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
+            modestbranding: 1,
+            playsinline: 1,
+            rel: 0,
+            iv_load_policy: 3,
+            origin: location.origin,
+          },
+          events: {
+            onReady: function (ev) {
+              try {
+                ev.target.mute();
+                if (typeof ev.target.cueVideoById === "function") {
+                  ev.target.cueVideoById({ videoId: id, startSeconds: 0 });
+                }
+              } catch (eR) {}
+              self._ytWarmId = id;
+            },
+          },
+        });
+      } catch (eWarm) {}
+    });
+  };
+
   var _play = P.prototype.play;
   P.prototype.play = function (payload) {
     payload = payload || {};
@@ -26499,15 +26648,34 @@
     var base = _play.call(this, payload);
     this.state.streamUrl = saved;
     this.state.mode = "yt_embed";
+    // Kick API early if not already prewarmed for this id.
+    try {
+      if (typeof self.prewarmYtEmbed === "function") self.prewarmYtEmbed(embedId);
+    } catch (ePw) {}
     return Promise.resolve(base)
       .catch(function () {})
       .then(function () {
         return self._startYtEmbed(embedId);
       });
   };
+
+  window.SDMusicYtEmbed = {
+    prewarm: function (videoId) {
+      try {
+        var inst = window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance;
+        if (inst && typeof inst.prewarmYtEmbed === "function") return inst.prewarmYtEmbed(videoId);
+        // Ensure player shell exists so warm host can attach.
+        if (window.StepDaddyMusicPlayer && typeof window.StepDaddyMusicPlayer.ensure === "function") {
+          var p = window.StepDaddyMusicPlayer.ensure(document.body);
+          if (p && typeof p.prewarmYtEmbed === "function") return p.prewarmYtEmbed(videoId);
+        }
+      } catch (e) {}
+      return ensureYtApi();
+    },
+  };
 })();
 
-/* === music_player_gestures === */
+;/* === music_player_gestures === */
 /**
  * StepDaddy Music — gesture/hint polish for unified queue (optional patch).
  * Core gestures live in music_player.js; this keeps swipe hint + context label in sync.
@@ -26568,7 +26736,7 @@
   }
 })();
 
-/* === music_taste === */
+;/* === music_taste === */
 /**
  * StepDaddy Music — device-local taste / predictive ranking (privacy-safe).
  * Signals: plays, completes, skips, likes, follows, entry path, temporal,
@@ -27432,7 +27600,7 @@
   };
 })();
 
-/* === music_library === */
+;/* === music_library === */
 /**
  * StepDaddy Music Library — local-first saved items + playlists.
  * Liked songs, albums, artists, stations, user playlists (private/public/collaborative),
@@ -28435,7 +28603,7 @@
   };
 })();
 
-/* === music_session_signals === */
+;/* === music_session_signals === */
 /**
  * Session signals: realtime ring-steer + anti-repeat suppress lists.
  * Like / unlike / skip-vs-dwell / queue-remove update which Autoplay ring
@@ -28865,7 +29033,7 @@
   };
 })();
 
-/* === music_ecosystem_rings === */
+;/* === music_ecosystem_rings === */
 /**
  * Music Autoplay — 10-ring ecosystem + multi-parent helpers.
  * Single-tree (album/artist) and multi-parent (playlist/likes/mixed) ladders.
@@ -29381,7 +29549,7 @@
   };
 })();
 
-/* === music_artist_ecosystem === */
+;/* === music_artist_ecosystem === */
 /**
  * Artist ecosystem Up Next builder (single-tree album/directory continuity).
  * Bound from SDMusicSmartQueue via attachArtistEcosystem(deps).
@@ -29596,7 +29764,7 @@
   window.SDMusicArtistEcosystem = { attach: attachArtistEcosystem };
 })();
 
-/* === music_uq_ecosystem === */
+;/* === music_uq_ecosystem === */
 /**
  * Unified Queue artist / multi-parent ecosystem prefetch.
  * API: window.SDMusicUQEcosystem.bind(ctx)
@@ -29847,7 +30015,7 @@
   window.SDMusicUQEcosystem = { bind: bind };
 })();
 
-/* === music_uq_autoplay === */
+;/* === music_uq_autoplay === */
 /**
  * Unified Queue Autoplay prepare / append (split from music_unified_queue.js).
  * API: window.SDMusicUQAutoplay.bind(ctx)
@@ -30111,7 +30279,7 @@
   window.SDMusicUQAutoplay = { bind: bind };
 })();
 
-/* === music_unified_queue === */
+;/* === music_unified_queue === */
 /**
  * StepDaddy Music — Unified Listen session timeline.
  * History → Now Playing → Play Next → Up Next → Autoplay
@@ -31028,7 +31196,7 @@
   };
 })();
 
-/* === music_smart_queue === */
+;/* === music_smart_queue === */
 /**
  * StepDaddy Music — always-on smart queue.
  * Autoplay expands outward on a 10-ring ecosystem ladder (most → least specific).
@@ -32003,7 +32171,7 @@
   };
 })();
 
-/* === music_radio_cache === */
+;/* === music_radio_cache === */
 /**
  * StepDaddy Music Radio — in-memory + sessionStorage TTL cache + idle prewarm.
  * Prefer existing /api/music/radio/* endpoints. Non-blocking.
@@ -32244,7 +32412,7 @@
   };
 })();
 
-/* === music_focus === */
+;/* === music_focus === */
 /**
  * StepDaddy Music — shared content focus (search chips ↔ Home layout).
  * One source of truth: sessionStorage + light localStorage mirror.
@@ -32472,7 +32640,7 @@
   };
 })();
 
-/* === music_artists === */
+;/* === music_artists === */
 /**
  * StepDaddy Music — Artists directory helpers for Home.
  * Pool + sort modes: recent / genre / era / latest / hot / recommended.
@@ -33067,7 +33235,7 @@
   }
 })();
 
-/* === music_directories === */
+;/* === music_directories === */
 /**
  * StepDaddy Music — entity directories (tracks / albums / playlists / videos).
  * Artists stay in music_artists.js. API: window.SDMusicDirectories
@@ -33532,7 +33700,7 @@
   };
 })();
 
-/* === player_music === */
+;/* === player_music === */
 /* player_music: Music slide-up shell — Home / Radio / Listen */
 (function sdMusicBoot() {
   let open = false;
@@ -34080,7 +34248,7 @@
   }
 })();
 
-/* === music_axis_lock === */
+;/* === music_axis_lock === */
 /**
  * Horizontal shelf axis-lock: vertical drag scrolls parent; horizontal pans shelf.
  * Use with touch-action:none on the shelf (CSS).
@@ -34285,7 +34453,7 @@
   window.SDShelfAxisLock = { wire: wire, wireAll: wireAll, findVerticalParent: findVerticalParent };
 })();
 
-/* === music_radio === */
+;/* === music_radio === */
 /**
  * StepDaddy Music Radio — Radio Browser hierarchy UI.
  * Mount: window.StepDaddyMusicRadio.mount(containerEl, { geo?, onClose? })
@@ -35008,7 +35176,7 @@
   }
 })();
 
-/* === music_listen === */
+;/* === music_listen === */
 /**
  * StepDaddy Music Listen — YouTube Music shelves (streaming only).
  * Mount: window.StepDaddyMusicListen.mount(containerEl, { onClose? })
@@ -35243,9 +35411,63 @@
       return streamInflight[videoId];
     }
 
-    /** Prefetch next 1–2 upcoming Listen stream tokens; warm Autoplay when Up Next is thin. */
+    /** Hidden <audio> elements that soft-buffer server_proxy / HLS URLs before track change. */
+    var proxyWarmers = {};
+    function warmProxyStream(url) {
+      if (!url || typeof url !== "string") return;
+      if (url.indexOf("ytembed:") === 0) return;
+      try {
+        if (proxyWarmers[url]) return;
+        // Cap concurrent warmers — keep newest 3.
+        var keys = Object.keys(proxyWarmers);
+        if (keys.length >= 3) {
+          var drop = keys[0];
+          try {
+            proxyWarmers[drop].pause();
+            proxyWarmers[drop].removeAttribute("src");
+            proxyWarmers[drop].load();
+          } catch (eDrop) {}
+          delete proxyWarmers[drop];
+        }
+        var a = document.createElement("audio");
+        a.preload = "auto";
+        a.muted = true;
+        a.volume = 0;
+        a.setAttribute("playsinline", "");
+        a.setAttribute("aria-hidden", "true");
+        a.style.cssText = "position:absolute;width:0;height:0;opacity:0;pointer-events:none";
+        a.src = url;
+        try {
+          a.load();
+        } catch (eLoad) {}
+        proxyWarmers[url] = a;
+      } catch (eWarm) {}
+    }
+
+    function warmResolvedStream(data) {
+      if (!data) return;
+      var url = data.stream_url || "";
+      if (!url) return;
+      if (url.indexOf("ytembed:") === 0 || data.mode === "yt_embed") {
+        var vid = url.indexOf("ytembed:") === 0 ? url.slice(8).trim() : String(data.videoId || "");
+        if (!vid) return;
+        try {
+          var P = sharedPlayer();
+          var inst = P && P._instance;
+          if (inst && typeof inst.prewarmYtEmbed === "function") inst.prewarmYtEmbed(vid);
+          else if (window.SDMusicYtEmbed && typeof window.SDMusicYtEmbed.prewarm === "function") {
+            window.SDMusicYtEmbed.prewarm(vid);
+          }
+        } catch (eYt) {}
+        return;
+      }
+      warmProxyStream(url);
+    }
+
+    /** Prefetch next 1–2 upcoming Listen streams; warm Autoplay when Up Next is thin.
+     *  Always warm media (server_proxy buffer + ytembed cue) — don't wait for track change. */
     function prewarmUpcoming(n) {
-      n = n == null ? 2 : n;
+      n = n == null ? 2 : Math.max(1, Math.min(3, n | 0));
       var u = UQ();
       if (!u) return;
       try {
@@ -35256,23 +35478,35 @@
           if (upLen <= 2 || apLen < 6) u.prepareAutoplay();
         }
       } catch (ePrep) {}
-      var ids = [];
+      var items = [];
       try {
         var flat = typeof u.asFlatQueue === "function" ? u.asFlatQueue() : [];
         flat.slice(1, 1 + n).forEach(function (t) {
           var id = t && (t.videoId || t.id);
-          if (id) ids.push(String(id));
+          if (id) items.push({ id: String(id), track: t });
         });
       } catch (eFlat) {
         try {
           var peek = u.peekNext && u.peekNext();
-          if (peek && (peek.videoId || peek.id)) ids.push(String(peek.videoId || peek.id));
+          if (peek && (peek.videoId || peek.id)) {
+            items.push({ id: String(peek.videoId || peek.id), track: peek });
+          }
         } catch (ePeek) {}
       }
-      ids.forEach(function (id) {
-        if (cacheGet(id) || streamInflight[id]) return;
+      items.forEach(function (it) {
+        var cached = cacheGet(it.id);
+        if (cached) {
+          warmResolvedStream(cached);
+          return;
+        }
+        if (streamInflight[it.id]) {
+          streamInflight[it.id].then(warmResolvedStream).catch(function () {});
+          return;
+        }
         // Prewarm must never block current/next ready playback.
-        fetchStream(id, { timeoutMs: 10000 }).catch(function () {});
+        fetchStream(it.id, { timeoutMs: 10000, track: it.track || {} })
+          .then(warmResolvedStream)
+          .catch(function () {});
       });
     }
 
@@ -35464,7 +35698,10 @@
             P._instance.audio.currentTime = 0;
           } catch (eR) {}
         }
-        // Keep warming while current track plays — continuous Autoplay refill
+        // Keep warming while current track plays — continuous Autoplay refill + media warm
+        setTimeout(function () {
+          prewarmUpcoming(2);
+        }, 400);
         setTimeout(function () {
           prewarmUpcoming(2);
         }, 1200);
@@ -35478,7 +35715,29 @@
           try {
             if (u && typeof u.prepareAutoplay === "function") u.prepareAutoplay();
           } catch (eTop2) {}
+          prewarmUpcoming(2);
         }, 15000);
+        // Mid-track nudge: when ~45s remain (or halfway), re-warm next for low-latency change.
+        try {
+          var Pinst = P && P._instance;
+          if (Pinst && Pinst.audio && !Pinst.__sdPrewarmProgHooked) {
+            Pinst.__sdPrewarmProgHooked = true;
+            var lastProgWarm = 0;
+            Pinst.audio.addEventListener("timeupdate", function () {
+              try {
+                var a = Pinst.audio;
+                if (!a || !isFinite(a.duration) || a.duration < 8) return;
+                var left = a.duration - (a.currentTime || 0);
+                var now = Date.now();
+                if (now - lastProgWarm < 8000) return;
+                if (left < 45 || a.currentTime / a.duration > 0.55) {
+                  lastProgWarm = now;
+                  prewarmUpcoming(2);
+                }
+              } catch (eTu) {}
+            });
+          }
+        } catch (eHook) {}
         syncFlatFromUnified();
       } catch (e) {
         try {
@@ -37117,7 +37376,7 @@
   }
 })();
 
-/* === music_home === */
+;/* === music_home === */
 /**
  * StepDaddy Music Home — personalized Spotify-like directory.
  * Mount: window.StepDaddyMusicHome.mount(containerEl, { onBack? })
@@ -38462,7 +38721,7 @@
   };
 })();
 
-/* === music_search === */
+;/* === music_search === */
 /**
  * StepDaddy Music — unified search (stations + Listen entities) + voice mic.
  * Mounts into #musicUnifiedSearch inside /music shell.
@@ -39606,7 +39865,7 @@
   }
 })();
 
-/* === music_search_gestures === */
+;/* === music_search_gestures === */
 /**
  * Music search results gestures — swipe-down dismiss + infinite scroll.
  * Used by music_search.js Mount.
@@ -39723,11 +39982,19 @@
   };
 })();
 
-/* === music_tv_audio === */
+;/* === music_tv_audio === */
 /**
- * Smart TV ↔ Music audio focus: short crossfades so Live TV and Music don't clash.
- * Scopes to #v (live program) volume + StepDaddyMusicPlayer audio volume.
- * Does not fight party AV ducking when speech duck is actively holding TV low.
+ * Smart TV ↔ Music audio focus (Auto focus Music ↔ TV).
+ * Default ON (localStorage sd_music_tv_audio_smart). Toggle in Settings → Playback.
+ *
+ * When ON:
+ *  - Music focus (play / sheet open / dock expand / Music zone pointer) → mute+pause live TV
+ *    via Media Session release path; short crossfade on volumes.
+ *  - Music Stop + TV reclaim → unmute and jump-to-live (not stale buffer).
+ * When OFF: both may play; Media Session ownership still updates but TV is not paused.
+ *
+ * Party: does not fight active speech-duck (partyHoldingDuck) — leaves TV near duck level.
+ * Dynamic focus uses the same zones as Media Session (sheet, dock, TV chrome).
  */
 (function () {
   if (window.SDMusicTvAudio) return;
@@ -40092,7 +40359,7 @@
   };
 })();
 
-/* === player_report === */
+;/* === player_report === */
 /* player_report: /tv ⋯ Report popup — audit snapshot + screenshot + POST /api/channel-reports */
 (function sdReportBoot() {
   const CATEGORIES = [
