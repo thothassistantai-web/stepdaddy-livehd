@@ -289,17 +289,20 @@
 /* Expanded now-playing sheet — Spotify-inspired density: large art, bottom-weighted chrome */
 .sd-music-player .smp-sheet {
   --smp-vh: 100dvh;
-  --smp-vw: 100vw;
+  --smp-vw: 100%;
   --smp-pad-x: clamp(16px, 4.5vw, 28px);
   --smp-pad-y: clamp(4px, 1vh, 10px);
   --smp-art: min(88vw, calc(var(--smp-vh) * 0.46), 420px);
+  /* Fill the visual viewport; JS sets --smp-vh/--smp-vw from visualViewport.
+     Prefer 100% when a transformed ancestor traps fixed (catalog open). */
   position: fixed;
   inset: 0;
-  width: 100vw;
-  width: 100dvw;
-  height: 100vh;
-  height: var(--smp-vh);
-  max-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  height: var(--smp-vh, 100dvh);
+  max-height: var(--smp-vh, 100dvh);
   z-index: 80;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -308,7 +311,7 @@
   padding:
     calc(var(--smp-pad-y) + env(safe-area-inset-top, 0px))
     calc(var(--smp-pad-x) + env(safe-area-inset-right, 0px))
-    calc(8px + env(safe-area-inset-bottom, 0px))
+    calc(10px + env(safe-area-inset-bottom, 0px))
     calc(var(--smp-pad-x) + env(safe-area-inset-left, 0px));
   box-sizing: border-box;
   /* Solid footing; art skin paints via ::before/::after (var-01 strong blur + blue wash) */
@@ -318,6 +321,22 @@
   overflow: hidden;
   overscroll-behavior: contain;
   isolation: isolate;
+}
+/* Inside Music catalog (transform containing-block): fill host, never overflow clip */
+#musicCatalog .sd-music-player .smp-sheet {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+}
+#musicCatalog.music-home.open:has(.sd-music-player.show.expanded) .sd-music-player .smp-sheet {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: 100%;
+  height: var(--smp-vh, 100dvh);
+  max-height: var(--smp-vh, 100dvh);
 }
 /* Artist/album photo skin — blur + blue wash + fade-to-black chrome blend */
 .sd-music-player .smp-sheet::before {
@@ -532,10 +551,23 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center center;
+  background: #000;
 }
 .sd-music-player .smp-sheet-art video {
   opacity: 0;
   transition: opacity 0.85s ease;
+}
+/* Video (16:9): use a landscape frame so official-video letterbox isn't a tall black square */
+.sd-music-player.has-video .smp-sheet-art {
+  aspect-ratio: 16 / 9;
+  width: var(--smp-art);
+  height: auto;
+  max-width: 100%;
+  max-height: calc(var(--smp-vh) * 0.46);
+}
+.sd-music-player.has-video .smp-sheet-art video.show {
+  object-fit: contain;
 }
 .sd-music-player .smp-swipe-hint {
   margin-top: clamp(4px, 1vh, 10px);

@@ -1,3 +1,8 @@
+## Music S21 viewport fit 20260911e
+- Root cause: `.music-home` used `98dvh` + `.vod-catalog` `transform` trapping `.smp-sheet` fixed positioning; sheet height used full `visualViewport` → ~17px top gap + bottom clip on S21 WebAPK.
+- Fix: full-bleed Music catalog (`100dvh` / `--music-vh`); expanded host `transform: none`; sheet fills host / VV; video art uses 16:9 contain; `_syncViewport` clamps to catalog client box.
+- Report: `/tmp/music-s21-fit.json`
+
 ## Music desktop field: search-tab dismiss + wide art/queue 20260911d
 - Field-tested /music at 1280/1440/1920 + landscape: sheet, Music|Home|Radio|Listen, search Enter blur, directories, OG share OK.
 - Fix: header tab switch dismisses search results overlay (was covering Home/Radio/Listen).

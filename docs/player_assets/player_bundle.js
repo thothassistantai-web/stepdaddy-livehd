@@ -22720,20 +22720,40 @@
     if (!this.root) return;
     var sheet = this.root.querySelector("[data-smp-sheet]");
     if (!sheet) return;
-    var h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    var w = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+    var vv = window.visualViewport;
+    var h = vv && vv.height ? vv.height : window.innerHeight;
+    var w = vv && vv.width ? vv.width : window.innerWidth;
     if (!h || !w) {
       h = window.innerHeight;
       w = window.innerWidth;
+    }
+    /* Prefer layout viewport when visualViewport is smaller due to transient
+       browser chrome; never exceed the usable layout size. */
+    var layoutH = window.innerHeight || h;
+    var layoutW = window.innerWidth || w;
+    if (layoutH > 0) h = Math.min(h, layoutH);
+    if (layoutW > 0) w = Math.min(w, layoutW);
+    /* If sheet is trapped in #musicCatalog (transform containing-block), size
+       to the catalog's client box so we don't overflow/clip controls. */
+    var catalog = document.getElementById("musicCatalog");
+    if (catalog && catalog.contains(this.root)) {
+      var ch = catalog.clientHeight;
+      var cw = catalog.clientWidth;
+      if (ch > 40) h = Math.min(h, ch);
+      if (cw > 40) w = Math.min(w, cw);
     }
     sheet.style.setProperty("--smp-vh", h + "px");
     sheet.style.setProperty("--smp-vw", w + "px");
     var landscape = w > h;
     var short = h < 640;
+    var hasVideo = this.root.classList.contains("has-video");
     var art;
     // Spotify-like: art dominates upper viewport; leave room for bottom-weighted chrome
     if (landscape) {
       art = Math.min(h * 0.78, w * 0.4, short ? 210 : 300);
+    } else if (hasVideo) {
+      /* 16:9 frame width — height follows aspect-ratio in CSS */
+      art = Math.min(w * 0.92, h * 0.44 * (16 / 9), 560);
     } else if (h < 700) {
       art = Math.min(w * 0.86, h * 0.4, 320);
     } else {
@@ -22744,6 +22764,7 @@
     sheet.dataset.short = short ? "1" : "0";
     try {
       document.documentElement.style.setProperty("--music-vh", h + "px");
+      document.documentElement.style.setProperty("--music-vw", w + "px");
     } catch (e) {}
   };
 
