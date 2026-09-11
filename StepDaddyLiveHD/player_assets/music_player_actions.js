@@ -257,7 +257,16 @@
           }).then(function (r) {
             return r.ok ? r.json() : null;
           }).then(function (stream) {
-            if (!stream || !stream.stream_url) throw new Error("no_stream");
+            if (!stream || !stream.stream_url) {
+              stream = {
+                ok: true,
+                mode: "yt_embed",
+                stream_url: "ytembed:" + track.videoId,
+                title: track.title,
+                uploader: (track.artists && track.artists.join(", ")) || "",
+                thumb: track.thumb || "",
+              };
+            }
             return self.play({
               source: "listen",
               id: track.videoId,
@@ -269,6 +278,7 @@
               artwork: stream.thumb || track.thumb || "",
               streamUrl: stream.stream_url,
               videoUrl: stream.video_stream_url || "",
+              mode: stream.mode || "",
               now: {
                 title: stream.title || track.title,
                 artist: stream.uploader || parts.artist,

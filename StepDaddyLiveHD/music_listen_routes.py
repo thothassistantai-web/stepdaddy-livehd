@@ -184,15 +184,32 @@ async def music_lyrics(
 
 
 @router.get("/api/music/listen/health")
-async def music_listen_health(request: Request):
+async def music_listen_health(
+    request: Request,
+    probe: int = Query(0, ge=0, le=1),
+):
     limited = _rate_limited(request)
     if limited:
         return limited
     try:
         data = await _run(ytm.health)
-        data["stream"] = "ephemeral_proxy"
+        data["stream"] = "ephemeral_proxy_or_yt_embed"
         data["disk_archive"] = False
         data["proxy"] = stream.proxy_status()
+        data["client_embed"] = stream.client_embed_enabled()
+        data["laptop_proxy_required"] = False
+        # Default: do not block health on a slow YouTube probe; ?probe=1 for ops.
+        if probe:
+            extract = await _run(stream.probe_extract)
+            data["extract"] = extract
+            data["extract_ok"] = bool(extract.get("ok"))
+        else:
+            data["extract_ok"] = None
+            data["extract"] = {"ok": None, "skipped": True, "hint": "pass probe=1"}
+        # Listen is ready without home SOCKS when client embed is on OR server extract works.
+        data["listen_ready"] = bool(data.get("ok")) and (
+            data["client_embed"] or data.get("extract_ok") is True
+        )
         return data
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)

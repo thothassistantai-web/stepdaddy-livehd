@@ -1,3 +1,12 @@
+## Music Listen VPS-only (no laptop SOCKS) 20260911m
+
+- Goal: eliminate home `pproxy` + `ssh -R :11080` dependency for Music Listen.
+- Oracle DC IP bot-gates yt-dlp for popular videos; cookies alone still return storyboards only; WARP wgcf handshake-only on OCI (no data plane).
+- **Replacement:** server extract tries direct android* → cookies+web → optional SOCKS; on bot-gate returns `mode=yt_embed` / `stream_url=ytembed:<id>`. Browser plays via YouTube IFrame API (client residential/mobile IP). Home tunnel soft-deprecated for Music (still optional acceleration; VOD may still use `VOD_SOCKS5`).
+- Cookies: one-time export to VPS `data/youtube.cookies.txt` via `scripts/music-refresh-youtube-cookies.sh` (not a continuous laptop process).
+- Health: `listen_ready` true with `client_embed` even when `proxy.active=false`; `?probe=1` for server extract probe.
+- Field: stream Liked song with SOCKS stopped → yt_embed 200.
+
 ## Music Liked play + SOCKS restore 20260911l
 - Symptom on **k**: Liked songs / Listen taps appeared to do nothing; Radio still worked.
 - Root cause: home `pproxy` + `ssh -R :11080` reverse tunnel was **down** → VPS `VOD_SOCKS5` inactive → yt-dlp hit Oracle IP → YouTube bot gate (`Sign in to confirm you’re not a bot`) → `/stream/{id}` **502**. Cached rickroll still 200 (masked the outage).

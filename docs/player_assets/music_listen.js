@@ -178,6 +178,21 @@
       }
     }
 
+    function ytEmbedFallback(videoId, trackMeta) {
+      trackMeta = trackMeta || {};
+      return {
+        ok: true,
+        mode: "yt_embed",
+        videoId: videoId,
+        title: trackMeta.title || videoId,
+        uploader: trackMeta.uploader || (trackMeta.artists && trackMeta.artists.join(", ")) || trackMeta.subtitle || "",
+        thumb: trackMeta.thumb || "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg",
+        stream_url: "ytembed:" + videoId,
+        server_extract: false,
+        laptop_proxy_required: false,
+      };
+    }
+
     function fetchStream(videoId, opts) {
       opts = opts || {};
       if (!videoId) return Promise.reject(new Error("no_id"));
@@ -203,6 +218,12 @@
           if (!data || !data.stream_url) throw new Error("no_stream");
           cachePut(videoId, data);
           return data;
+        })
+        .catch(function (err) {
+          // VPS-autonomous: browser plays via YouTube IFrame (client IP) when server extract is gated.
+          var fb = ytEmbedFallback(videoId, opts.track || {});
+          cachePut(videoId, fb);
+          return fb;
         })
         .finally(function () {
           clearTimeout(abortTimer);
@@ -379,7 +400,7 @@
         "";
       var retryKey = track.videoId;
       try {
-        const data = await fetchStream(track.videoId, { force: !!opts.forceStream });
+        const data = await fetchStream(track.videoId, { force: !!opts.forceStream, track: track });
         if (!data || !data.stream_url) throw new Error("no_stream");
         streamRetry[retryKey] = 0;
         const title = data.title || track.title || "Track";
@@ -408,6 +429,7 @@
           artwork: data.thumb || track.thumb || "",
           streamUrl: data.stream_url,
           videoUrl: data.video_stream_url || "",
+          mode: data.mode || "",
           albumId: albumId,
           albumTitle: albumTitle,
           artistId: artistId,

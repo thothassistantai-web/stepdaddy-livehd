@@ -10710,7 +10710,6 @@
     boot();
   
 
-;
 /* === player_features === */
 /* player_features: continue watching, subtitles, hls controls, prefetch, last-good */
 (function sdFeaturesBoot() {
@@ -13904,7 +13903,6 @@
   };
 })();
 
-;
 /* === player_cinema === */
 /* Cinema player advanced: settings/themes, gestures, sources, dual audio, download, xray */
 (function sdCinemaBoot() {
@@ -14849,7 +14847,6 @@
   if (document.getElementById("hlsChrome")) onChromeReady();
 })();
 
-;
 /* === player_embed === */
 /* Embed hybrid chrome: slim OSD + YouTube postMessage bridge when available */
 (function sdEmbedBoot() {
@@ -15555,7 +15552,6 @@
   };
 })();
 
-;
 /* === player_party_av_media === */
 /* player_party_av_media: gUM constraints, local mirror prefs, speech VAD + TV ducking */
 (function sdPartyAvMediaBoot() {
@@ -15816,7 +15812,6 @@
   };
 })();
 
-;
 /* === player_party_av === */
 /* player_party_av: built-in WebRTC mesh + movable/resizable AV overlay (Jitsi optional) */
 (function sdPartyAvBoot() {
@@ -17502,7 +17497,6 @@
   };
 })();
 
-;
 /* === player_party === */
 /* player_party: QR share/remote, watch party chat/reactions/HLS clock sync */
 (function sdPartyBoot() {
@@ -20906,7 +20900,6 @@
   };
 })();
 
-;
 /* === player_party_invite === */
 /* player_party_invite: Invite sheet — Link | Wi‑Fi nearby | Near me (NFC/QR) */
 (function sdPartyInviteBoot() {
@@ -21555,7 +21548,6 @@
   };
 })();
 
-;
 /* === player_party_home === */
 /* player_party_home: Watch Party slide-up hub — Create / Enter code / Nearby / Resume / Public / Presence */
 (function sdPartyHomeBoot() {
@@ -22444,7 +22436,6 @@
   }
 })();
 
-;
 /* === music_player === */
 /**
  * StepDaddy Music — unified Spotify-like player for Radio + Listen.
@@ -24481,7 +24472,6 @@
   };
 })();
 
-;
 /* === music_player_actions === */
 /**
  * StepDaddy Music player — expanded-sheet actions (fav/share/lyrics/Listen/queue/info).
@@ -24742,7 +24732,16 @@
           }).then(function (r) {
             return r.ok ? r.json() : null;
           }).then(function (stream) {
-            if (!stream || !stream.stream_url) throw new Error("no_stream");
+            if (!stream || !stream.stream_url) {
+              stream = {
+                ok: true,
+                mode: "yt_embed",
+                stream_url: "ytembed:" + track.videoId,
+                title: track.title,
+                uploader: (track.artists && track.artists.join(", ")) || "",
+                thumb: track.thumb || "",
+              };
+            }
             return self.play({
               source: "listen",
               id: track.videoId,
@@ -24754,6 +24753,7 @@
               artwork: stream.thumb || track.thumb || "",
               streamUrl: stream.stream_url,
               videoUrl: stream.video_stream_url || "",
+              mode: stream.mode || "",
               now: {
                 title: stream.title || track.title,
                 artist: stream.uploader || parts.artist,
@@ -25841,7 +25841,6 @@
   };
 })();
 
-;
 /* === music_player_video === */
 /**
  * StepDaddy Music player — video preview / fullscreen state machine.
@@ -26226,7 +26225,288 @@
   };
 })();
 
-;
+/* === music_yt_embed === */
+/**
+ * YouTube IFrame embed playback for Listen when VPS yt-dlp is bot-gated.
+ * Patches StepDaddyMusicPlayer after music_player.js (+ video).
+ * streamUrl form: "ytembed:<videoId>"
+ */
+(function () {
+  var P = window.StepDaddyMusicPlayer;
+  if (!P || !P.prototype || P.prototype.__sdYtEmbedPatched) return;
+  P.prototype.__sdYtEmbedPatched = true;
+
+  var YT_API = "https://www.youtube.com/iframe_api";
+  var _ytReady = null;
+  var _ytQueue = [];
+
+  function ensureYtApi() {
+    if (window.YT && window.YT.Player) return Promise.resolve();
+    if (_ytReady) return _ytReady;
+    _ytReady = new Promise(function (resolve) {
+      var prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = function () {
+        try {
+          if (typeof prev === "function") prev();
+        } catch (e) {}
+        resolve();
+        _ytQueue.splice(0).forEach(function (fn) {
+          try {
+            fn();
+          } catch (e2) {}
+        });
+      };
+      if (!document.getElementById("sd-yt-iframe-api")) {
+        var s = document.createElement("script");
+        s.id = "sd-yt-iframe-api";
+        s.src = YT_API;
+        s.async = true;
+        document.head.appendChild(s);
+      }
+      // Already loading / raced
+      var n = 0;
+      var t = setInterval(function () {
+        n += 1;
+        if (window.YT && window.YT.Player) {
+          clearInterval(t);
+          resolve();
+        } else if (n > 100) {
+          clearInterval(t);
+          resolve();
+        }
+      }, 100);
+    });
+    return _ytReady;
+  }
+
+  function parseEmbed(url) {
+    if (!url || typeof url !== "string") return null;
+    if (url.indexOf("ytembed:") === 0) return url.slice(8).trim();
+    return null;
+  }
+
+  P.prototype._isYtEmbedUrl = function (url) {
+    return !!parseEmbed(url);
+  };
+
+  P.prototype._destroyYtEmbed = function () {
+    if (this._ytTick) {
+      clearInterval(this._ytTick);
+      this._ytTick = null;
+    }
+    try {
+      if (this._ytPlayer && typeof this._ytPlayer.destroy === "function") {
+        this._ytPlayer.destroy();
+      }
+    } catch (e) {}
+    this._ytPlayer = null;
+    if (this._ytHost && this._ytHost.parentNode) {
+      try {
+        this._ytHost.parentNode.removeChild(this._ytHost);
+      } catch (e2) {}
+    }
+    this._ytHost = null;
+    if (this.root) this.root.classList.remove("has-yt-embed");
+  };
+
+  P.prototype._ensureYtHost = function () {
+    if (this._ytHost && this._ytHost.isConnected) return this._ytHost;
+    var host = document.createElement("div");
+    host.className = "smp-yt-embed";
+    host.setAttribute("data-smp-yt-embed", "1");
+    host.style.cssText =
+      "position:absolute;inset:0;width:100%;height:100%;overflow:hidden;pointer-events:none;opacity:0.001;z-index:2;";
+    var mount =
+      (this.root && this.root.querySelector("[data-smp-art-wrap], .smp-art, [data-smp-sheet]")) ||
+      this.root ||
+      document.body;
+    if (mount && getComputedStyle(mount).position === "static") {
+      mount.style.position = "relative";
+    }
+    var inner = document.createElement("div");
+    inner.id = "smp-yt-player-" + Math.random().toString(36).slice(2, 9);
+    host.appendChild(inner);
+    mount.appendChild(host);
+    this._ytHost = host;
+    this._ytInnerId = inner.id;
+    if (this.root) this.root.classList.add("has-yt-embed");
+    return host;
+  };
+
+  P.prototype._syncFromYt = function () {
+    if (!this._ytPlayer || typeof this._ytPlayer.getCurrentTime !== "function") return;
+    try {
+      var t = this._ytPlayer.getCurrentTime() || 0;
+      var d = this._ytPlayer.getDuration() || 0;
+      if (this.audio) {
+        // Mirror into a blank audio element so existing progress UI / media session keep working.
+        try {
+          Object.defineProperty(this.audio, "currentTime", {
+            configurable: true,
+            get: function () {
+              return t;
+            },
+            set: function () {},
+          });
+        } catch (eDef) {}
+        try {
+          Object.defineProperty(this.audio, "duration", {
+            configurable: true,
+            get: function () {
+              return d;
+            },
+          });
+        } catch (eDur) {}
+      }
+      if (typeof this._onTimeUpdate === "function") this._onTimeUpdate();
+      if (typeof this._syncMediaSession === "function") this._syncMediaSession();
+    } catch (e) {}
+  };
+
+  P.prototype._startYtEmbed = function (videoId) {
+    var self = this;
+    this._destroyYtEmbed();
+    this._ensureYtHost();
+    this._wantPlaying = true;
+    try {
+      window.__sdMusicHoldsTv = true;
+    } catch (eH) {}
+
+    return ensureYtApi().then(function () {
+      if (!window.YT || !window.YT.Player) {
+        return Promise.reject(new Error("yt_api_unavailable"));
+      }
+      return new Promise(function (resolve, reject) {
+        var settled = false;
+        self._ytPlayer = new window.YT.Player(self._ytInnerId, {
+          width: "100%",
+          height: "100%",
+          videoId: videoId,
+          playerVars: {
+            autoplay: 1,
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
+            modestbranding: 1,
+            playsinline: 1,
+            rel: 0,
+            iv_load_policy: 3,
+            origin: location.origin,
+          },
+          events: {
+            onReady: function (ev) {
+              try {
+                ev.target.playVideo();
+                if (self.state.muted) ev.target.mute();
+                else {
+                  ev.target.unMute();
+                  if (typeof ev.target.setVolume === "function") {
+                    ev.target.setVolume(Math.round((self.state.volume || 1) * 100));
+                  }
+                }
+              } catch (eR) {}
+              self.state.playing = true;
+              if (typeof self._syncPlayButtons === "function") self._syncPlayButtons();
+              if (typeof self._claimMediaSession === "function") self._claimMediaSession();
+              self._ytTick = setInterval(function () {
+                self._syncFromYt();
+              }, 500);
+              if (!settled) {
+                settled = true;
+                resolve();
+              }
+            },
+            onStateChange: function (ev) {
+              var st = ev && ev.data;
+              if (st === window.YT.PlayerState.ENDED) {
+                self.state.playing = false;
+                if (typeof self._syncPlayButtons === "function") self._syncPlayButtons();
+                if (typeof self._handlers.onEnded === "function") self._handlers.onEnded();
+                else if (typeof self.state.onEnded === "function") self.state.onEnded();
+              } else if (st === window.YT.PlayerState.PLAYING) {
+                self.state.playing = true;
+                self._wantPlaying = true;
+                if (typeof self._syncPlayButtons === "function") self._syncPlayButtons();
+              } else if (st === window.YT.PlayerState.PAUSED) {
+                self.state.playing = false;
+                if (typeof self._syncPlayButtons === "function") self._syncPlayButtons();
+              }
+            },
+            onError: function () {
+              if (!settled) {
+                settled = true;
+                reject(new Error("yt_embed_error"));
+              }
+            },
+          },
+        });
+        setTimeout(function () {
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+        }, 8000);
+      });
+    });
+  };
+
+  var _clearMedia = P.prototype._clearMedia;
+  P.prototype._clearMedia = function () {
+    this._destroyYtEmbed();
+    return _clearMedia.apply(this, arguments);
+  };
+
+  var _toggle = P.prototype.toggle;
+  P.prototype.toggle = function () {
+    if (this._ytPlayer && typeof this._ytPlayer.getPlayerState === "function") {
+      try {
+        var st = this._ytPlayer.getPlayerState();
+        if (st === window.YT.PlayerState.PLAYING) {
+          this._wantPlaying = false;
+          this._ytPlayer.pauseVideo();
+          this.state.playing = false;
+        } else {
+          this._wantPlaying = true;
+          this._ytPlayer.playVideo();
+          this.state.playing = true;
+        }
+        if (typeof this._syncPlayButtons === "function") this._syncPlayButtons();
+        if (typeof this._syncMediaSession === "function") this._syncMediaSession();
+        return;
+      } catch (e) {}
+    }
+    return _toggle.apply(this, arguments);
+  };
+
+  var _play = P.prototype.play;
+  P.prototype.play = function (payload) {
+    payload = payload || {};
+    var url = payload.streamUrl || payload.url || "";
+    var embedId = parseEmbed(url);
+    if (!embedId && payload.mode === "yt_embed" && (payload.videoId || payload.id)) {
+      embedId = String(payload.videoId || payload.id);
+      payload.streamUrl = "ytembed:" + embedId;
+    }
+    if (!embedId) {
+      this._destroyYtEmbed();
+      return _play.apply(this, arguments);
+    }
+
+    // Run shared play() setup by temporarily clearing streamUrl, then start embed.
+    var saved = payload.streamUrl;
+    payload.streamUrl = "";
+    var self = this;
+    var base = _play.call(this, payload);
+    this.state.streamUrl = saved;
+    this.state.mode = "yt_embed";
+    return Promise.resolve(base)
+      .catch(function () {})
+      .then(function () {
+        return self._startYtEmbed(embedId);
+      });
+  };
+})();
+
 /* === music_player_gestures === */
 /**
  * StepDaddy Music — gesture/hint polish for unified queue (optional patch).
@@ -26288,7 +26568,6 @@
   }
 })();
 
-;
 /* === music_taste === */
 /**
  * StepDaddy Music — device-local taste / predictive ranking (privacy-safe).
@@ -27153,7 +27432,6 @@
   };
 })();
 
-;
 /* === music_library === */
 /**
  * StepDaddy Music Library — local-first saved items + playlists.
@@ -28157,7 +28435,6 @@
   };
 })();
 
-;
 /* === music_session_signals === */
 /**
  * Session signals: realtime ring-steer + anti-repeat suppress lists.
@@ -28588,7 +28865,6 @@
   };
 })();
 
-;
 /* === music_ecosystem_rings === */
 /**
  * Music Autoplay — 10-ring ecosystem + multi-parent helpers.
@@ -29105,7 +29381,6 @@
   };
 })();
 
-;
 /* === music_artist_ecosystem === */
 /**
  * Artist ecosystem Up Next builder (single-tree album/directory continuity).
@@ -29321,7 +29596,6 @@
   window.SDMusicArtistEcosystem = { attach: attachArtistEcosystem };
 })();
 
-;
 /* === music_uq_ecosystem === */
 /**
  * Unified Queue artist / multi-parent ecosystem prefetch.
@@ -29573,7 +29847,6 @@
   window.SDMusicUQEcosystem = { bind: bind };
 })();
 
-;
 /* === music_uq_autoplay === */
 /**
  * Unified Queue Autoplay prepare / append (split from music_unified_queue.js).
@@ -29838,7 +30111,6 @@
   window.SDMusicUQAutoplay = { bind: bind };
 })();
 
-;
 /* === music_unified_queue === */
 /**
  * StepDaddy Music — Unified Listen session timeline.
@@ -30756,7 +31028,6 @@
   };
 })();
 
-;
 /* === music_smart_queue === */
 /**
  * StepDaddy Music — always-on smart queue.
@@ -31732,7 +32003,6 @@
   };
 })();
 
-;
 /* === music_radio_cache === */
 /**
  * StepDaddy Music Radio — in-memory + sessionStorage TTL cache + idle prewarm.
@@ -31974,7 +32244,6 @@
   };
 })();
 
-;
 /* === music_focus === */
 /**
  * StepDaddy Music — shared content focus (search chips ↔ Home layout).
@@ -32203,7 +32472,6 @@
   };
 })();
 
-;
 /* === music_artists === */
 /**
  * StepDaddy Music — Artists directory helpers for Home.
@@ -32799,7 +33067,6 @@
   }
 })();
 
-;
 /* === music_directories === */
 /**
  * StepDaddy Music — entity directories (tracks / albums / playlists / videos).
@@ -33265,7 +33532,6 @@
   };
 })();
 
-;
 /* === player_music === */
 /* player_music: Music slide-up shell — Home / Radio / Listen */
 (function sdMusicBoot() {
@@ -33814,7 +34080,6 @@
   }
 })();
 
-;
 /* === music_axis_lock === */
 /**
  * Horizontal shelf axis-lock: vertical drag scrolls parent; horizontal pans shelf.
@@ -34020,7 +34285,6 @@
   window.SDShelfAxisLock = { wire: wire, wireAll: wireAll, findVerticalParent: findVerticalParent };
 })();
 
-;
 /* === music_radio === */
 /**
  * StepDaddy Music Radio — Radio Browser hierarchy UI.
@@ -34744,7 +35008,6 @@
   }
 })();
 
-;
 /* === music_listen === */
 /**
  * StepDaddy Music Listen — YouTube Music shelves (streaming only).
@@ -34926,6 +35189,21 @@
       }
     }
 
+    function ytEmbedFallback(videoId, trackMeta) {
+      trackMeta = trackMeta || {};
+      return {
+        ok: true,
+        mode: "yt_embed",
+        videoId: videoId,
+        title: trackMeta.title || videoId,
+        uploader: trackMeta.uploader || (trackMeta.artists && trackMeta.artists.join(", ")) || trackMeta.subtitle || "",
+        thumb: trackMeta.thumb || "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg",
+        stream_url: "ytembed:" + videoId,
+        server_extract: false,
+        laptop_proxy_required: false,
+      };
+    }
+
     function fetchStream(videoId, opts) {
       opts = opts || {};
       if (!videoId) return Promise.reject(new Error("no_id"));
@@ -34951,6 +35229,12 @@
           if (!data || !data.stream_url) throw new Error("no_stream");
           cachePut(videoId, data);
           return data;
+        })
+        .catch(function (err) {
+          // VPS-autonomous: browser plays via YouTube IFrame (client IP) when server extract is gated.
+          var fb = ytEmbedFallback(videoId, opts.track || {});
+          cachePut(videoId, fb);
+          return fb;
         })
         .finally(function () {
           clearTimeout(abortTimer);
@@ -35127,7 +35411,7 @@
         "";
       var retryKey = track.videoId;
       try {
-        const data = await fetchStream(track.videoId, { force: !!opts.forceStream });
+        const data = await fetchStream(track.videoId, { force: !!opts.forceStream, track: track });
         if (!data || !data.stream_url) throw new Error("no_stream");
         streamRetry[retryKey] = 0;
         const title = data.title || track.title || "Track";
@@ -35156,6 +35440,7 @@
           artwork: data.thumb || track.thumb || "",
           streamUrl: data.stream_url,
           videoUrl: data.video_stream_url || "",
+          mode: data.mode || "",
           albumId: albumId,
           albumTitle: albumTitle,
           artistId: artistId,
@@ -36832,7 +37117,6 @@
   }
 })();
 
-;
 /* === music_home === */
 /**
  * StepDaddy Music Home — personalized Spotify-like directory.
@@ -38178,7 +38462,6 @@
   };
 })();
 
-;
 /* === music_search === */
 /**
  * StepDaddy Music — unified search (stations + Listen entities) + voice mic.
@@ -39323,7 +39606,6 @@
   }
 })();
 
-;
 /* === music_search_gestures === */
 /**
  * Music search results gestures — swipe-down dismiss + infinite scroll.
@@ -39441,7 +39723,6 @@
   };
 })();
 
-;
 /* === music_tv_audio === */
 /**
  * Smart TV ↔ Music audio focus: short crossfades so Live TV and Music don't clash.
@@ -39811,7 +40092,6 @@
   };
 })();
 
-;
 /* === player_report === */
 /* player_report: /tv ⋯ Report popup — audit snapshot + screenshot + POST /api/channel-reports */
 (function sdReportBoot() {

@@ -1,16 +1,18 @@
+## Music Listen VPS-only (no laptop SOCKS) 20260911m
+
+- Goal: eliminate home `pproxy` + `ssh -R :11080` dependency for Music Listen.
+- Oracle DC IP bot-gates yt-dlp for popular videos; cookies alone still return storyboards only; WARP wgcf handshake-only on OCI (no data plane).
+- **Replacement:** server extract tries direct android* → cookies+web → optional SOCKS; on bot-gate returns `mode=yt_embed` / `stream_url=ytembed:<id>`. Browser plays via YouTube IFrame API (client residential/mobile IP). Home tunnel soft-deprecated for Music (still optional acceleration; VOD may still use `VOD_SOCKS5`).
+- Cookies: one-time export to VPS `data/youtube.cookies.txt` via `scripts/music-refresh-youtube-cookies.sh` (not a continuous laptop process).
+- Health: `listen_ready` true with `client_embed` even when `proxy.active=false`; `?probe=1` for server extract probe.
+- Field: stream Liked song with SOCKS stopped → yt_embed 200.
+
 ## Music Liked play + SOCKS restore 20260911l
 - Symptom on **k**: Liked songs / Listen taps appeared to do nothing; Radio still worked.
 - Root cause: home `pproxy` + `ssh -R :11080` reverse tunnel was **down** → VPS `VOD_SOCKS5` inactive → yt-dlp hit Oracle IP → YouTube bot gate (`Sign in to confirm you’re not a bot`) → `/stream/{id}` **502**. Cached rickroll still 200 (masked the outage).
 - k ring-steer JS path still started UQ sessions in headless smoke (no ReferenceError); not the primary blocker.
 - Fix: restore `pproxy` + `ssh -R 127.0.0.1:11080`; harden `playTracks` to normalize `id→videoId` via `asPlayableTrack`, try/catch `startFromSource` so rings throws never silent-no-op; guard ecosystem/prepare in UQ; unify template VERSION to **l**.
 - Smoke: FrsOnNxIrg8 / H4RELGc9su8 / NQbkGDoD7B0 stream **200** after tunnel; report `/tmp/music-liked-play-broken.json`.
-
-## Music realtime ring steer + anti-repeat + smart shuffle 20260911k
-- Realtime ring progression from like/unlike, skip-vs-dwell, queue-remove → `SDMusicSessionSignals` steers Autoplay softCaps / preferRing / parent weights.
-- Anti-repeat: full session history blocklist, taste-recent suppress, queue-remove suppress, Autoplay↔Up Next↔Smart Shuffle dedupe; ring-10 may replay only when exhausted.
-- Smart Shuffle predictive weights: likes, skips, dwell/completes, co-occurrence, TOD, entry path, multi-parent vibe (CoSeRNN / YTM / Spotify Smart Shuffle takeaways).
-- Split: `music_session_signals.js`, `music_uq_autoplay.js` (UQ kept <1k). Smoke: `_smoke_ring_steer_antirepeat.js`.
-- Report: `/tmp/music-rings-realtime-antirepeat-smart.json`.
 
 ## Music likes → taste learning 20260911j
 - Field: library `likeTrack` saved likes but never called `SDMusicTaste.recordLike`, so hearts/library likes did not move Smart Shuffle / Home soft-boost / Autoplay ranking.
