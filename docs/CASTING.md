@@ -12,6 +12,26 @@ Version: introduced **20260909c** (live cache-bust may be newer, e.g. **20260909
 
 All call `window.SDCast.prompt()`.
 
+## Live notification / Media Session (20260909o)
+
+Android shade media box is driven by `MediaSession` + Cast metadata:
+
+- Title includes programme + `S#E#` (+ channel while casting)
+- Artist = channel name
+- Album = `Casting · {device}` when connected (else `Live · Ch N`)
+- Artwork = programme poster when available
+- Note: Chrome often still shows the **site origin** on the second line of Cast notifications; channel is folded into the title to compensate.
+
+## Receiver metadata (20260909n)
+
+`SDCast` builds Cast `MediaInfo.metadata` from now-playing EPG + UI:
+
+- **Title** — programme name (e.g. `9-1-1`)
+- **Subtitle** — `Channel · S#E#` (and short plot when useful)
+- **TV metadata** — `TvShowMediaMetadata` when season/episode present
+- **Images** — programme poster / backdrop (absolute URLs)
+- **Refresh** — `SDCast.refreshMetadata()` reloads the active session without re-picking a device
+
 ## Paths (best-effort order)
 
 1. **AirPlay** — Safari / iOS: `webkitShowPlaybackTargetPicker`; `<video airplay x-webkit-airplay="allow">`

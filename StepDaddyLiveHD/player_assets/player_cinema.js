@@ -642,7 +642,8 @@
     if (!trailerLayer || trailerLayer.dataset.pcGestures === "1") return;
     trailerLayer.dataset.pcGestures = "1";
     const PARTY_IGNORE =
-      ".party-drawer, .party-fab, .party-toast, .party-jitsi-stage, .party-av-overlay, #partyAvOverlay, #partyFab, .party-live-overlay, .sd-modal, .sd-modal-backdrop";
+      /* Not .party-live-overlay — that class lives on #trailerLayer/#videoArea layout roots. */
+      ".party-drawer, .party-fab, .party-toast, .party-jitsi-stage, .party-av-overlay, #partyAvOverlay, #partyFab, .party-live-dock, .party-live-badge, .party-rising-bubbles, .sd-modal, .sd-modal-backdrop";
     function ignoreParty(t) {
       return !!(t && t.closest && t.closest(PARTY_IGNORE));
     }

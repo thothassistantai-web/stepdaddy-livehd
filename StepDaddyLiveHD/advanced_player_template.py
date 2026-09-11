@@ -31,10 +31,16 @@ def render_advanced_tv_page(channel_id: str | None = None) -> str:
   <link rel="apple-touch-icon" href="/tv-assets/icon-192.png"/>
   <title>TV Guide — StepDaddyLiveHD</title>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
-  <link rel="stylesheet" href="/tv-assets/player.css?v=20260909h"/>
-  <link rel="stylesheet" href="/tv-assets/player_guide_sheet.css?v=20260909h"/>
-  <link rel="stylesheet" href="/tv-assets/player_features.css?v=20260909h"/>
-  <link rel="stylesheet" href="/tv-assets/player_cinema.css?v=20260909h"/>
+  <link rel="stylesheet" href="/tv-assets/player.css?v=20260911d"/>
+  <link rel="stylesheet" href="/tv-assets/player_guide_sheet.css?v=20260911d"/>
+  <link rel="stylesheet" href="/tv-assets/player_features.css?v=20260911d"/>
+  <link rel="stylesheet" href="/tv-assets/player_cinema.css?v=20260911d"/>
+  <link rel="stylesheet" href="/tv-assets/music_radio.css?v=20260911d"/>
+  <link rel="stylesheet" href="/tv-assets/music_listen.css?v=20260911d"/>
+  <link rel="stylesheet" href="/tv-assets/music_library.css?v=20260911d"/>
+  <link rel="stylesheet" href="/tv-assets/music_home.css?v=20260911d"/>
+  <link rel="stylesheet" href="/tv-assets/music_player.css?v=20260911d"/>
+  <link rel="stylesheet" href="/tv-assets/music_search.css?v=20260911d"/>
   <script src="/tv-assets/pull_reload.js" defer></script>
   <script src="/tv-assets/mobile_shell.js" defer></script>
 """
@@ -70,6 +76,9 @@ def render_advanced_tv_page(channel_id: str | None = None) -> str:
         <button type="button" class="btn-search-chrome" id="searchBtnChrome" aria-label="Search channels, guide, and VOD" title="Search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
         </button>
+      </div>
+      <div class="live-edge-chrome" id="liveEdgeChrome" hidden>
+        <span class="live-now-pill" id="liveNowPill" title="Live" aria-hidden="true">LIVE</span>
       </div>
       <div class="loading-bar" id="loadBar"></div>
       <div class="buffer-overlay" id="bufferOverlay" aria-live="polite" aria-hidden="true">
@@ -150,6 +159,9 @@ def render_advanced_tv_page(channel_id: str | None = None) -> str:
             <button type="button" class="btn-icon" id="vodCatalogBtn" aria-label="VOD catalog" title="VOD">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 4v16M17 4v16M2 8h5M2 12h5M2 16h5M17 8h5M17 12h5M17 16h5"/></svg>
             </button>
+            <button type="button" class="btn-icon" id="musicCatalogBtn" aria-label="Music" title="Music">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            </button>
             <button type="button" class="btn-icon" id="partyHomeBtn" aria-label="Watch Party home" title="Watch Party">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             </button>
@@ -183,6 +195,7 @@ def render_advanced_tv_page(channel_id: str | None = None) -> str:
                 <button type="button" role="menuitem" data-guide-action="settings">Settings</button>
                 <button type="button" role="menuitem" data-guide-action="simple">Simple player</button>
                 <button type="button" role="menuitem" data-guide-action="party">Watch Party</button>
+                <button type="button" role="menuitem" data-guide-action="music">Music</button>
                 <button type="button" role="menuitem" data-guide-action="search">Search</button>
                 <button type="button" role="menuitem" data-guide-action="cinema">Cinema layout</button>
                 <button type="button" role="menuitem" data-guide-action="theme">Cycle theme</button>
@@ -204,6 +217,10 @@ def render_advanced_tv_page(channel_id: str | None = None) -> str:
           <div class="cat-drawer-head">Categories</div>
           <div class="cat-drawer-scroll" id="catDrawerList" role="listbox" aria-label="Filter guide by category"></div>
         </aside>
+        <button type="button" class="cat-drawer-tab" id="catDrawerTab" aria-controls="catDrawer" aria-expanded="false" aria-label="Open categories" title="Categories (C)">
+          <span class="cat-drawer-tab-grip" aria-hidden="true"></span>
+          <svg class="cat-drawer-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        </button>
         <button type="button" class="cat-drawer-scrim" id="catDrawerScrim" aria-label="Close categories" hidden></button>
         <div class="ch-scroll" id="chScroll">
           <div class="virtual-wrap" id="chWrap"></div>
@@ -477,54 +494,104 @@ def render_advanced_tv_page(channel_id: str | None = None) -> str:
       <div class="vod-detail-scroll" id="vodDetailScroll"></div>
     </div>
   </div>
+  <div class="vod-catalog-backdrop" id="musicCatalogBackdrop"></div>
+  <div class="vod-catalog music-home" id="musicCatalog" role="dialog" aria-modal="true" aria-label="Music" aria-hidden="true">
+    <div class="vod-catalog-head music-home-head">
+      <a class="vod-brand music-brand" id="musicHomeBrand" href="/music" title="Music home">Music</a>
+      <div class="music-home-tabs" id="musicCatalogTabs" role="tablist" aria-label="Music sections">
+        <button type="button" class="music-home-tab active" role="tab" aria-selected="true" data-music-tab="home" id="musicTabHome">Home</button>
+        <button type="button" class="music-home-tab" role="tab" aria-selected="false" data-music-tab="radio" id="musicTabRadio">Radio</button>
+        <button type="button" class="music-home-tab" role="tab" aria-selected="false" data-music-tab="listen" id="musicTabListen">Listen</button>
+      </div>
+      <button type="button" class="btn-link" id="closeMusicCatalog" aria-label="Close Music">✕</button>
+    </div>
+    <div class="music-unified-search-wrap" id="musicUnifiedSearch" data-music-search></div>
+    <div class="music-chip-rail" id="musicChipRail" aria-label="Music focus">
+      <div class="music-focus-chips-host" id="musicFocusChipsHost" data-music-focus-host></div>
+    </div>
+    <div class="vod-catalog-body music-home-body" id="musicCatalogBody">
+      <section class="music-home-panel" id="musicPanelHome" data-music-panel="home">
+        <div id="musicHomeRoot" data-music-home></div>
+      </section>
+      <section class="music-home-panel" id="musicPanelRadio" data-music-panel="radio" hidden>
+        <div id="musicRadioRoot" data-music-radio></div>
+      </section>
+      <section class="music-home-panel" id="musicPanelListen" data-music-panel="listen" hidden>
+        <div id="musicListenRoot" data-music-listen></div>
+      </section>
+    </div>
+  </div>
   <div class="vod-catalog-backdrop" id="partyHomeBackdrop"></div>
-  <div class="vod-catalog party-home" id="partyHome" role="dialog" aria-label="Watch Party home">
+  <div class="vod-catalog party-home" id="partyHome" role="dialog" aria-modal="true" aria-label="Watch Party home" aria-hidden="true">
     <div class="vod-catalog-head party-home-head">
       <h2>Watch Party</h2>
       <button type="button" class="btn-link" id="closePartyHome" aria-label="Close Watch Party">✕</button>
     </div>
     <div class="vod-catalog-body party-home-body" id="partyHomeBody">
-      <section class="party-home-panel">
-        <h3>Join with code</h3>
-        <form class="party-home-row" id="partyHomeJoinForm">
-          <input id="partyHomeJoinCode" placeholder="Party code" maxlength="8" autocomplete="off" spellcheck="false"/>
-          <input id="partyHomeJoinName" placeholder="Display name" maxlength="32" autocomplete="nickname"/>
-          <button type="submit">Join</button>
-        </form>
-        <p class="party-home-err" id="partyHomeJoinErr"></p>
+      <section class="party-home-panel party-home-hero" id="partyHomeHero">
+        <p class="party-home-lede">Watch together — create a room, enter a code, or jump into something nearby.</p>
+        <div class="party-home-cta" role="group" aria-label="Party actions">
+          <button type="button" class="party-home-btn party-home-cta-btn" id="partyHomeCtaCreate" aria-expanded="false" aria-controls="partyHomeCreatePanel">Create party</button>
+          <button type="button" class="party-home-btn secondary party-home-cta-btn" id="partyHomeCtaJoin" aria-expanded="false" aria-controls="partyHomeJoinPanel">Enter code</button>
+        </div>
       </section>
-      <section class="party-home-panel">
+      <section class="party-home-panel party-home-create" id="partyHomeCreatePanel" hidden>
         <h3>Create a party</h3>
-        <p class="party-home-muted">Start on live TV or open VOD, then invite friends with a code.</p>
+        <p class="party-home-muted">Name it, choose public or private, then start on live TV or VOD.</p>
+        <label class="party-home-field" for="partyHomeCreateName">Room name</label>
+        <input id="partyHomeCreateName" maxlength="64" placeholder="Friday night · Room …" autocomplete="off"/>
+        <label class="party-home-field" for="partyHomeCreateGuest">Your display name</label>
+        <input id="partyHomeCreateGuest" maxlength="32" placeholder="Guest" autocomplete="nickname"/>
+        <label class="party-home-check"><input type="checkbox" id="partyHomeCreatePublic" checked/> Public room (browseable on this PIN)</label>
+        <label class="party-home-field" for="partyHomeCreatePassword">Password <span class="party-home-optional">(optional)</span></label>
+        <input id="partyHomeCreatePassword" type="password" maxlength="64" placeholder="Leave blank for open room" autocomplete="new-password"/>
         <div class="party-home-actions">
-          <button type="button" class="party-home-btn" id="partyHomeStartLive">Start on live TV</button>
+          <button type="button" class="party-home-btn" id="partyHomeCreateNow">Create on this channel</button>
+          <button type="button" class="party-home-btn secondary" id="partyHomeStartLive">Start on live TV</button>
           <button type="button" class="party-home-btn secondary" id="partyHomeStartVod">Start from VOD</button>
           <button type="button" class="party-home-btn secondary" id="partyHomeStartLast" hidden>Start on last channel</button>
         </div>
+        <p class="party-home-err" id="partyHomeCreateErr" role="status"></p>
       </section>
-      <section class="party-home-panel">
-        <h3>Who’s online</h3>
-        <p class="party-home-pill"><span class="party-home-dot"></span> <span id="partyHomeOnlineSummary">Checking…</span></p>
-        <div class="party-home-grid" id="partyHomeOnlineList"></div>
+      <section class="party-home-panel party-home-join" id="partyHomeJoinPanel" hidden>
+        <h3>Enter code</h3>
+        <form class="party-home-row" id="partyHomeJoinForm">
+          <input id="partyHomeJoinCode" placeholder="Party code" maxlength="8" autocomplete="off" spellcheck="false" aria-label="Party code"/>
+          <input id="partyHomeJoinName" placeholder="Display name" maxlength="32" autocomplete="nickname" aria-label="Display name"/>
+          <button type="submit">Join</button>
+        </form>
+        <p class="party-home-err" id="partyHomeJoinErr" role="status"></p>
       </section>
-      <section class="party-home-panel">
-        <h3>Active public parties</h3>
+      <section class="party-home-panel" id="partyHomeNearbyPanel">
+        <h3>Nearby on this Wi‑Fi</h3>
+        <p class="party-home-muted">Rooms announcing on this network. Locked rooms still need a password.</p>
+        <div class="party-home-grid cards" id="partyHomeNearbyList"><p class="party-home-empty">Checking…</p></div>
+      </section>
+      <section class="party-home-panel" id="partyHomeContinuePanel">
+        <h3>Continue / recent</h3>
+        <div class="party-home-grid cards" id="partyHomeContinueList"><p class="party-home-empty">Loading…</p></div>
+      </section>
+      <section class="party-home-panel" id="partyHomePublicPanel">
+        <h3>Live public parties</h3>
         <div class="party-home-grid cards" id="partyHomePublicList"><p class="party-home-empty">Loading…</p></div>
       </section>
-      <section class="party-home-panel">
-        <h3>Your recent parties</h3>
-        <div class="party-home-grid" id="partyHomeRecentList"><p class="party-home-empty">No recent parties on this device.</p></div>
+      <section class="party-home-panel" id="partyHomeOnlinePanel">
+        <h3>Who’s watching</h3>
+        <p class="party-home-pill"><span class="party-home-dot" aria-hidden="true"></span> <span id="partyHomeOnlineSummary">Checking…</span></p>
+        <div class="party-home-grid" id="partyHomeOnlineList"></div>
       </section>
-      <section class="party-home-panel">
-        <h3>Suggested</h3>
-        <div class="party-home-grid" id="partyHomeSuggestList"><p class="party-home-empty">Watch something, then start a party from here.</p></div>
-      </section>
+      <footer class="party-home-footer">
+        <a href="/tv/" class="party-home-footer-link">TV Guide</a>
+        <span aria-hidden="true">·</span>
+        <span class="party-home-footer-hint">Invite tips: share the link, or use Wi‑Fi nearby from inside a party.</span>
+      </footer>
     </div>
   </div>
 """
         + """  <script>window.SD_INITIAL_CHANNEL = """ + initial + """;</script>
-  <script src="/tv-assets/pin_unlock.js?v=20260909h"></script>
-  <script src="/tv-assets/player_bundle.js?v=20260909h"></script>
+  <script>window.__SD_BUNDLE_VERSION = "20260911d";</script>
+  <script src="/tv-assets/pin_unlock.js?v=20260911d"></script>
+  <script src="/tv-assets/player_bundle.js?v=20260911d"></script>
 </body>
 </html>
 """

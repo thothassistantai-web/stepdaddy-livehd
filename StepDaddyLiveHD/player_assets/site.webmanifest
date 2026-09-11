@@ -1,7 +1,7 @@
 {
   "name": "StepDaddyLiveHD",
   "short_name": "StepDaddy",
-  "description": "Live TV + on-demand + Watch Party gateway",
+  "description": "Live TV + on-demand + music + Watch Party gateway",
   "start_url": "/tv/",
   "scope": "/",
   "display": "standalone",

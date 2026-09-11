@@ -233,6 +233,20 @@
         pin = "";
         render();
         close();
+        // Auth disabled on gateway: unlock UI was a false prompt (CDN 401). Close quietly.
+        if (data.disabled) {
+          try {
+            window.dispatchEvent(new CustomEvent("sd-auth-unlocked", { detail: data }));
+          } catch (e) {}
+          var disabledCbs = onSuccessCbs.slice();
+          onSuccessCbs = [];
+          for (var di = 0; di < disabledCbs.length; di++) {
+            try {
+              disabledCbs[di](data);
+            } catch (e) {}
+          }
+          return;
+        }
         try {
           window.dispatchEvent(new CustomEvent("sd-auth-unlocked", { detail: data }));
         } catch (e) {}

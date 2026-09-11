@@ -24,7 +24,7 @@
     "#sdInstallHint #sdInstallDismiss{flex:0 0 auto;margin-left:6px;min-width:44px;background:#333}" +
     "body.sd-install-visible .epg-panel,body.sd-guest-banner-visible .epg-panel{padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}" +
     "body.sd-install-visible .show-guide-btn{bottom:calc(88px + env(safe-area-inset-bottom,0px))}" +
-    ".party-fab,.party-icon-btn,.show-guide-btn,#partyHomeBtn,#vodCatalogBtn,#searchBtn,#settingsBtn,#castBtn,#guideMoreBtn{touch-action:manipulation;min-width:44px;min-height:44px}" +
+    ".party-fab,.party-icon-btn,.show-guide-btn,#partyHomeBtn,#vodCatalogBtn,#musicCatalogBtn,#searchBtn,#settingsBtn,#castBtn,#guideMoreBtn{touch-action:manipulation;min-width:44px;min-height:44px}" +
     "@media (orientation: portrait) and (max-width: 900px){" +
     "  body.sd-playing-vod .video-area{min-height:56vw}" +
     "}";

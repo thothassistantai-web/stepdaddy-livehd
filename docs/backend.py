@@ -39,6 +39,10 @@ from .utils import urlsafe_base64, urlsafe_base64_decode
 from .stability_routes import router as stability_router
 from .free_tier_routes import router as free_tier_router
 from .channel_report_routes import router as channel_report_router
+from .music_radio_routes import router as music_radio_router
+from .music_listen_routes import router as music_listen_router
+from .music_search_routes import router as music_search_router
+from .music_library_routes import router as music_library_router
 from .rate_limit import StreamRateLimitMiddleware
 from .play_template import render_play_page
 from .play_directory_template import render_play_directory_page
@@ -47,6 +51,8 @@ from .health_visual_template import render_health_visual_page
 from .unified_search import unified_search
 from StepDaddyLiveHD.supplements import get_catalog, get_settings
 from StepDaddyLiveHD.supplements import dulo as dulo_mod
+from StepDaddyLiveHD.supplements.logo_resolve import get_logo_resolver
+from StepDaddyLiveHD.supplements.taxonomy import genre_group_title, normalize_channel_taxonomy
 
 
 fastapi_app = FastAPI()
@@ -65,6 +71,10 @@ dead_channels: set[str] = set()
 fastapi_app.include_router(stability_router)
 fastapi_app.include_router(free_tier_router)
 fastapi_app.include_router(channel_report_router)
+fastapi_app.include_router(music_radio_router)
+fastapi_app.include_router(music_listen_router)
+fastapi_app.include_router(music_search_router)
+fastapi_app.include_router(music_library_router)
 fastapi_app.include_router(party_router)
 
 _channels_cache: list[Channel] | None = None
@@ -724,12 +734,30 @@ def _apply_identity_override(ch_id: str, name: str, logo: str | None) -> tuple[s
     raw_logo = (ov.get("logo") or "").strip()
     if raw_logo:
         if raw_logo.startswith("http://") or raw_logo.startswith("https://"):
-            api = (os.environ.get("API_URL") or "").rstrip("/")
             encoded = urlsafe_base64(raw_logo)
-            out_logo = f"{api}/logo/{encoded}" if api else f"/logo/{encoded}"
+            out_logo = f"/logo/{encoded}"
         else:
             out_logo = raw_logo
     return out_name, out_logo
+
+
+def _resolve_channel_logo(
+    *,
+    name: str,
+    logo: str | None,
+    tvg_id: str | None = None,
+    tags: list | None = None,
+    source: str | None = None,
+) -> str | None:
+    """Fill missing logos from iptv-org / Pluto / meta index (CDN URLs)."""
+    resolver = get_logo_resolver()
+    return resolver.resolve(
+        name=name,
+        tvg_id=tvg_id,
+        existing=logo,
+        tags=list(tags or []),
+        source=source,
+    )
 
 
 async def update_channels():
@@ -744,11 +772,44 @@ async def update_channels():
                 await get_catalog().ensure_loaded(force=True)
             except Exception:
                 pass
+            try:
+                await get_logo_resolver().ensure_loaded()
+            except Exception:
+                get_logo_resolver().load_from_disk()
             invalidate_channels_cache()
             _sync_epg_catalog()
             await asyncio.sleep(300)
         except asyncio.CancelledError:
             continue
+
+
+def _apply_channel_taxonomy(
+    *,
+    name: str,
+    tags: list,
+    group_title: str | None,
+    source: str | None,
+    provider: str | None,
+    tvg_id: str | None,
+) -> dict:
+    tax = normalize_channel_taxonomy(
+        name=name,
+        tags=tags,
+        group_title=group_title,
+        source=source,
+        provider=provider,
+        tvg_id=tvg_id,
+    )
+    # Prefer facet genre label for legacy group_title consumers; keep raw only if no genre.
+    gt = genre_group_title(tax) or group_title
+    return {
+        "genre": tax.genre,
+        "genres": list(tax.genres),
+        "distributor": tax.distributor,
+        "country": tax.country,
+        "language": tax.language,
+        "group_title": gt,
+    }
 
 
 def _build_channels_list() -> list[Channel]:
@@ -766,6 +827,21 @@ def _build_channels_list() -> list[Channel]:
                 match = epg.map_channel_by_id(ch.id, name)
                 tvg_id = match.tvg_id
                 epg_has = epg.has_programme_data(match.tvg_id)
+            logo = _resolve_channel_logo(
+                name=name,
+                logo=logo,
+                tvg_id=tvg_id,
+                tags=ch.tags,
+                source="ddl",
+            )
+            facets = _apply_channel_taxonomy(
+                name=name,
+                tags=ch.tags,
+                group_title=None,
+                source="ddl",
+                provider="DaddyLive",
+                tvg_id=tvg_id,
+            )
             channels.append(Channel(
                 id=ch.id,
                 name=name,
@@ -777,9 +853,14 @@ def _build_channels_list() -> list[Channel]:
                 tvg_id=tvg_id,
                 epg_has_data=epg_has,
                 provider="DaddyLive",
-                group_title=None,
+                group_title=facets["group_title"],
                 stream_url=live_stream_path(ch.id),
                 source="ddl",
+                genre=facets["genre"],
+                genres=facets["genres"],
+                distributor=facets["distributor"],
+                country=facets["country"],
+                language=facets["language"],
             ))
     for sch in get_catalog().list_channels():
         name, logo = _apply_identity_override(sch.id, sch.name, sch.logo)
@@ -802,6 +883,21 @@ def _build_channels_list() -> list[Channel]:
                     break
                 if tvg_id is None:
                     tvg_id = cid
+        logo = _resolve_channel_logo(
+            name=name,
+            logo=logo,
+            tvg_id=tvg_id or sch.tvg_id,
+            tags=list(sch.tags),
+            source=sch.source,
+        )
+        facets = _apply_channel_taxonomy(
+            name=name,
+            tags=list(sch.tags),
+            group_title=sch.group_title,
+            source=sch.source,
+            provider=sch.provider,
+            tvg_id=tvg_id,
+        )
         channels.append(Channel(
             id=sch.id,
             name=name,
@@ -813,9 +909,14 @@ def _build_channels_list() -> list[Channel]:
             tvg_id=tvg_id,
             epg_has_data=epg_has,
             provider=sch.provider,
-            group_title=sch.group_title,
+            group_title=facets["group_title"],
             stream_url=sch.stream_url or live_stream_path(sch.id),
             source=sch.source,
+            genre=facets["genre"],
+            genres=facets["genres"],
+            distributor=facets["distributor"],
+            country=facets["country"],
+            language=facets["language"],
         ))
     return channels
 
@@ -1533,19 +1634,32 @@ async def _vod_resolve_all(
     provider: str | None,
     lang: str,
 ) -> list[VodResolveResult]:
-    omss_results: list[VodResolveResult] = []
-    if omss_client.enabled() and not provider:
-        omss_results = await omss_client.fetch_sources(
-            tmdb_id, media_type, season, episode, client=client
-        )
-    local_results = await vod_resolver.resolve_all(
-        tmdb_id=tmdb_id,
-        media_type=media_type,
-        season=season,
-        episode=episode,
-        provider=provider,
-        lang=lang,
-    )
+    """Run OMSS + local extractors in parallel (CF-blocked VPS still gets OMSS MP4/HLS)."""
+    async def _omss() -> list[VodResolveResult]:
+        if not omss_client.enabled() or provider:
+            return []
+        try:
+            # Dedicated client — shared http2 client can stall localhost OMSS.
+            return await omss_client.fetch_sources(
+                tmdb_id, media_type, season, episode, client=None
+            )
+        except Exception:
+            return []
+
+    async def _local() -> list[VodResolveResult]:
+        try:
+            return await vod_resolver.resolve_all(
+                tmdb_id=tmdb_id,
+                media_type=media_type,
+                season=season,
+                episode=episode,
+                provider=provider,
+                lang=lang,
+            )
+        except Exception:
+            return []
+
+    omss_results, local_results = await asyncio.gather(_omss(), _local())
     merged = _merge_resolve_results(omss_results, local_results)
     if provider:
         pid = provider.strip().lower()
@@ -2105,6 +2219,7 @@ def channel_neighbors(channel_id: str):
             "number": idx + 1,
             "total": len(ids),
             "name": ch.name if ch else names.get(str(channel_id), ""),
+            "logo": (ch.logo if ch else None),
             "prev": {"id": prev_id, "name": names.get(str(prev_id), "")} if prev_id else None,
             "next": {"id": next_id, "name": names.get(str(next_id), "")} if next_id else None,
             "stream_url": stream,
@@ -2222,6 +2337,28 @@ def share_watch(token: str):
 def vod_catalog_shell(vod_path: str = ""):
     """VOD catalog SPA shell (same advanced TV player; client routes under /vod/*)."""
     html = render_advanced_tv_page(None)
+    return Response(content=html, media_type="text/html; charset=utf-8")
+
+
+@fastapi_app.get("/music")
+@fastapi_app.get("/music/{music_path:path}")
+async def music_catalog_shell(request: Request, music_path: str = ""):
+    """Music SPA shell (same advanced TV player; client routes under /music/*).
+
+    Deep links `/music/t/{videoId}` and `/music/r/{stationUuid}` (also
+    `/music/listen?v=` / `/music/radio?station=`) inject crawler-friendly OG tags
+    and a client boot payload that plays the track/station with expanded player.
+    """
+    from .music_share import apply_share_meta_to_html, enrich_share_meta, parse_music_share
+
+    html = render_advanced_tv_page(None)
+    meta = parse_music_share(request, music_path)
+    if meta:
+        try:
+            meta = await enrich_share_meta(meta)
+        except Exception:  # noqa: BLE001
+            pass
+        html = apply_share_meta_to_html(html, meta, request)
     return Response(content=html, media_type="text/html; charset=utf-8")
 
 

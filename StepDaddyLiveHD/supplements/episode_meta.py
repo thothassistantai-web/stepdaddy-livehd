@@ -13,10 +13,12 @@ _SEASON_EPISODE_PATTERNS = (
     re.compile(r"\b(\d{1,2})\s*[xX]\s*(\d{1,3})\b"),
     re.compile(r"\bSeason\s+(\d{1,2})\s*[,:]?\s*Episode\s+(\d{1,3})\b", re.I),
     re.compile(r"\bSeason\s+(\d{1,2})\s+Ep(?:isode)?\.?\s*(\d{1,3})\b", re.I),
-    # XMLTV onscreen / compact: "S1 E2" or "1/2" when both sides look like ep codes
+    # XMLTV onscreen / compact: "S1 E2"
     re.compile(r"\b[Ss](\d{1,2})\s+E(?:p(?:isode)?)?\s*(\d{1,3})\b"),
-    re.compile(r"\b(\d{1,2})\s*/\s*(\d{1,3})\b"),
 )
+# Bare "1/2" is only safe as a *whole* episode-num token — never inside prose
+# (e.g. "9/11 attacks" must not become S9E11).
+_SLASH_EPISODE_ONLY = re.compile(r"^\s*(\d{1,2})\s*/\s*(\d{1,3})\s*$")
 
 
 def format_episode_label(season: int | None, episode: int | None) -> str:
@@ -56,6 +58,16 @@ def parse_episode_num_text(text: str) -> dict[str, Any]:
     out: dict[str, Any] = {"season": None, "episode": None, "episode_label": ""}
     if not raw:
         return out
+    m_slash = _SLASH_EPISODE_ONLY.match(raw)
+    if m_slash:
+        season = coerce_episode_int(m_slash.group(1))
+        episode = coerce_episode_int(m_slash.group(2))
+        label = format_episode_label(season, episode)
+        if label:
+            out["season"] = season
+            out["episode"] = episode
+            out["episode_label"] = label
+            return out
     for pat in _SEASON_EPISODE_PATTERNS:
         m = pat.search(raw)
         if not m:

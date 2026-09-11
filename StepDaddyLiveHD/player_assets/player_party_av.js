@@ -9,6 +9,7 @@
   const DEFAULT_W = 280;
   const DEFAULT_H = 200;
   const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
+  const Media = () => window.SDPartyAvMedia || null;
 
   let sendFn = null;
   let myMemberId = "";
@@ -28,8 +29,13 @@
   let resizeState = null;
   let pinchState = null;
   let lastRectGeom = null; // active PiP size/pos (persisted; circle idle does not overwrite)
-  let stageFocus = "content"; // content | local | peerId
+  let stageFocus = "waiting"; // content | waiting | local | peerId
   let stageLayoutActive = false;
+  let remoteFirstActive = false;
+  let programDucker = null;
+  let speechMonitors = Object.create(null); // id -> monitor
+  let mirrorLocal = true;
+  let duckTv = true;
 
   function getProvider() {
     try {
@@ -109,6 +115,7 @@
     const host = partyHost();
     if (el) {
       if (host && el.parentNode !== host) host.appendChild(el);
+      ensureOverlayControls(el);
       return el;
     }
     el = document.createElement("div");
@@ -123,21 +130,61 @@
       '<div class="party-av-note" id="partyAvNote" hidden>Jitsi public demo may disconnect after ~5 minutes</div>' +
       '<div class="party-av-stage" id="partyAvStage"></div>' +
       '<div class="party-av-controls" id="partyAvControls">' +
-      '<button type="button" class="party-av-btn" id="partyAvMute" title="Mute mic" aria-label="Mute">🎤</button>' +
-      '<button type="button" class="party-av-btn" id="partyAvCam" title="Toggle camera" aria-label="Camera">📷</button>' +
+      '<button type="button" class="party-av-btn" id="partyAvMute" title="Mute mic" aria-label="Mute microphone" aria-pressed="false">🎤</button>' +
+      '<button type="button" class="party-av-btn" id="partyAvCam" title="Turn camera off" aria-label="Camera on" aria-pressed="false">📷</button>' +
+      '<button type="button" class="party-av-btn" id="partyAvMirror" title="Mirror my video" aria-label="Mirror my video" aria-pressed="true">🪞</button>' +
+      '<button type="button" class="party-av-btn" id="partyAvDuck" title="Duck TV while talking" aria-label="Duck TV audio while talking" aria-pressed="true">🔉</button>' +
       '<button type="button" class="party-av-btn party-av-hangup" id="partyAvHangup" title="Leave call" aria-label="Hang up">✕</button>' +
       "</div>" +
       '<div class="party-av-resize" id="partyAvResize" title="Resize" aria-hidden="true"></div>' +
       "</div>";
     host.appendChild(el);
     wireOverlayGestures(el);
+    ensureOverlayControls(el);
+    return el;
+  }
+
+  function ensureOverlayControls(el) {
+    const controls = el && el.querySelector("#partyAvControls");
+    if (!controls) return;
+    if (!document.getElementById("partyAvMirror")) {
+      const cam = document.getElementById("partyAvCam");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "party-av-btn";
+      btn.id = "partyAvMirror";
+      btn.title = "Mirror my video";
+      btn.setAttribute("aria-label", "Mirror my video");
+      btn.setAttribute("aria-pressed", "true");
+      btn.textContent = "🪞";
+      if (cam && cam.nextSibling) controls.insertBefore(btn, cam.nextSibling);
+      else controls.appendChild(btn);
+    }
+    if (!document.getElementById("partyAvDuck")) {
+      const hang = document.getElementById("partyAvHangup");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "party-av-btn";
+      btn.id = "partyAvDuck";
+      btn.title = "Duck TV while talking";
+      btn.setAttribute("aria-label", "Duck TV audio while talking");
+      btn.setAttribute("aria-pressed", "true");
+      btn.textContent = "🔉";
+      if (hang) controls.insertBefore(btn, hang);
+      else controls.appendChild(btn);
+    }
+    if (controls.dataset.wired === "1") return;
+    controls.dataset.wired = "1";
     const muteBtn = document.getElementById("partyAvMute");
     const camBtn = document.getElementById("partyAvCam");
     const hangBtn = document.getElementById("partyAvHangup");
+    const mirrorBtn = document.getElementById("partyAvMirror");
+    const duckBtn = document.getElementById("partyAvDuck");
     if (muteBtn) muteBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleMute(); });
     if (camBtn) camBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleCam(); });
+    if (mirrorBtn) mirrorBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleMirror(); });
+    if (duckBtn) duckBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleDuck(); });
     if (hangBtn) hangBtn.addEventListener("click", (e) => { e.stopPropagation(); hangUp(); });
-    return el;
   }
 
   function markActive() {
@@ -173,6 +220,10 @@
 
   function remotePeerCount() {
     return Object.keys(peers).length;
+  }
+
+  function wantsRemoteFirstLayout() {
+    return active && provider === "webrtc" && wantsVideo();
   }
 
   function shouldUseStageLayout() {
@@ -212,6 +263,35 @@
     return { stage: stage, main: main, strip: strip };
   }
 
+  function ensurePrimaryHost() {
+    const stage = document.getElementById("partyAvStage");
+    if (!stage) return null;
+    let primary = document.getElementById("partyAvPrimary");
+    if (!primary) {
+      primary = document.createElement("div");
+      primary.id = "partyAvPrimary";
+      primary.className = "party-av-primary";
+      stage.appendChild(primary);
+    }
+    return primary;
+  }
+
+  function ensureWaitingTile() {
+    let tile = document.getElementById("partyAvWaitingTile");
+    if (!tile) {
+      tile = document.createElement("div");
+      tile.id = "partyAvWaitingTile";
+      tile.className = "party-av-tile party-av-waiting";
+      tile.dataset.focus = "waiting";
+      tile.innerHTML =
+        '<div class="party-av-waiting-msg" aria-live="polite">' +
+        '<span class="party-av-waiting-title">Waiting for others…</span>' +
+        '<span class="party-av-waiting-sub">They’ll appear here when they join video</span>' +
+        "</div>";
+    }
+    return tile;
+  }
+
   function ensureContentTile() {
     const dom = ensureStageDom();
     if (!dom) return null;
@@ -232,15 +312,33 @@
   }
 
   function setStageFocus(focus) {
-    stageFocus = String(focus || (mode === "hybrid" ? "content" : "local"));
+    stageFocus = String(focus || defaultStageFocus());
     syncStageLayout();
   }
 
   function defaultStageFocus() {
-    if (mode === "hybrid") return "content";
     const remotes = Object.keys(peers);
+    // Remote-first: never default to local as the hero stage.
     if (remotes.length) return remotes[0];
-    return "local";
+    if (mode === "hybrid") return "content";
+    return "waiting";
+  }
+
+  function promoteRemoteFocusIfNeeded() {
+    const remotes = Object.keys(peers);
+    if (!remotes.length) return;
+    // Never keep local/waiting as hero once remotes exist.
+    if (stageFocus === "local" || stageFocus === "waiting" || !stageFocus) {
+      stageFocus = remotes[0];
+    }
+  }
+
+  function onRemoteJoined(peerId) {
+    if (!peerId) return;
+    // Hybrid / video: remote becomes primary when they arrive (user can still tap Content).
+    if (stageFocus === "local" || stageFocus === "waiting" || stageFocus === "content" || !stageFocus) {
+      stageFocus = peerId;
+    }
   }
 
   function dockStageOverlay(el) {
@@ -253,13 +351,92 @@
     el.style.height = "";
   }
 
+  function clearRemoteFirstDom(stage) {
+    const primary = document.getElementById("partyAvPrimary");
+    const waiting = document.getElementById("partyAvWaitingTile");
+    if (waiting && waiting.parentNode) waiting.remove();
+    const tiles = [];
+    if (primary) Array.from(primary.children).forEach((c) => tiles.push(c));
+    tiles.forEach((t) => {
+      if (t && t.classList.contains("party-av-tile") && !t.classList.contains("party-av-waiting")) {
+        stage.appendChild(t);
+      }
+    });
+    if (primary) primary.remove();
+    stage.querySelectorAll(".party-av-tile.local").forEach((t) => {
+      t.classList.remove("party-av-self-pip");
+    });
+  }
+
+  function syncRemoteFirstLayout() {
+    const el = document.getElementById("partyAvOverlay");
+    const stage = document.getElementById("partyAvStage");
+    if (!el || !stage || stage.classList.contains("jitsi")) return false;
+
+    const want = wantsRemoteFirstLayout() && !shouldUseStageLayout();
+    el.classList.toggle("party-av-remote-first", want);
+    el.classList.toggle("party-av-voice-only", active && provider === "webrtc" && mode === "voice");
+    if (!want) {
+      if (remoteFirstActive) {
+        remoteFirstActive = false;
+        clearRemoteFirstDom(stage);
+      }
+      return false;
+    }
+
+    remoteFirstActive = true;
+    el.classList.remove("party-stage-mode", "party-stage-content-focus");
+    const primary = ensurePrimaryHost();
+    if (!primary) return true;
+
+    const remotes = Array.from(stage.querySelectorAll(".party-av-tile.remote")).concat(
+      Array.from(primary.querySelectorAll(".party-av-tile.remote"))
+    );
+    // Dedupe
+    const seen = new Set();
+    const remoteTiles = [];
+    remotes.forEach((t) => {
+      if (seen.has(t.id)) return;
+      seen.add(t.id);
+      remoteTiles.push(t);
+    });
+
+    const local = document.getElementById("partyAvLocalTile");
+    const waiting = ensureWaitingTile();
+
+    while (primary.firstChild) primary.removeChild(primary.firstChild);
+
+    if (remoteTiles.length) {
+      if (waiting.parentNode) waiting.remove();
+      primary.classList.toggle("party-av-primary-grid", remoteTiles.length > 1);
+      remoteTiles.forEach((t) => {
+        t.classList.remove("party-av-self-pip", "party-focus-active");
+        primary.appendChild(t);
+      });
+      if (remoteTiles.length === 1) remoteTiles[0].classList.add("party-focus-active");
+    } else {
+      primary.classList.remove("party-av-primary-grid");
+      primary.appendChild(waiting);
+    }
+
+    if (local) {
+      local.classList.add("party-av-self-pip");
+      // Keep local as direct child of stage so absolute PiP anchors to stage
+      if (local.parentNode !== stage) stage.appendChild(local);
+    }
+    return true;
+  }
+
   function syncStageLayout() {
     const el = document.getElementById("partyAvOverlay");
     const stage = document.getElementById("partyAvStage");
     if (!el || !stage || stage.classList.contains("jitsi")) return;
 
-    const want = shouldUseStageLayout();
-    if (!want) {
+    // Voice: compact overlay, no forced empty video hero
+    el.classList.toggle("party-av-voice-only", active && provider === "webrtc" && mode === "voice");
+
+    const wantStage = shouldUseStageLayout();
+    if (!wantStage) {
       if (stageLayoutActive) {
         stageLayoutActive = false;
         el.classList.remove("party-stage-mode", "party-stage-content-focus");
@@ -281,7 +458,15 @@
         placeDefault();
         markActive();
       }
+      syncRemoteFirstLayout();
       return;
+    }
+
+    // Leaving floating remote-first when docking stage mode
+    if (remoteFirstActive) {
+      remoteFirstActive = false;
+      clearRemoteFirstDom(stage);
+      el.classList.remove("party-av-remote-first");
     }
 
     const was = stageLayoutActive;
@@ -290,9 +475,12 @@
     el.classList.add("party-stage-mode");
     clearTimeout(idleTimer);
 
-    if (!stageFocus || (!was && mode === "hybrid")) stageFocus = defaultStageFocus();
+    promoteRemoteFocusIfNeeded();
+    if (!stageFocus || !was) stageFocus = defaultStageFocus();
     if (mode === "video" && stageFocus === "content") stageFocus = defaultStageFocus();
     if (mode === "voice" && stageFocus === "content") stageFocus = defaultStageFocus();
+    // Never leave local as the docked hero when remotes exist
+    if (stageFocus === "local" && remotePeerCount()) stageFocus = defaultStageFocus();
 
     const dom = ensureStageDom();
     if (!dom) return;
@@ -300,10 +488,10 @@
 
     // Collect all camera tiles currently anywhere under stage
     const allTiles = Array.from(stage.querySelectorAll(".party-av-tile")).filter(
-      (t) => !t.classList.contains("party-content-tile")
+      (t) => !t.classList.contains("party-content-tile") && !t.classList.contains("party-av-waiting")
     );
     allTiles.forEach((t) => {
-      t.classList.remove("party-focus-active", "party-av-idle-focus");
+      t.classList.remove("party-focus-active", "party-av-idle-focus", "party-av-self-pip");
       if (!t.dataset.focus) {
         t.dataset.focus = t.classList.contains("local") ? "local" : t.dataset.peer || "";
       }
@@ -312,6 +500,7 @@
     });
 
     const contentFocus = mode === "hybrid" && stageFocus === "content";
+    const waitingFocus = stageFocus === "waiting" || (!remotePeerCount() && stageFocus !== "content" && stageFocus !== "local");
     el.classList.toggle("party-stage-content-focus", contentFocus);
 
     // Clear main/strip then redistribute
@@ -319,19 +508,26 @@
     while (strip.firstChild) strip.removeChild(strip.firstChild);
 
     if (contentFocus) {
-      const content = ensureContentTile();
-      // Content is on the movie canvas; cameras all go to filmstrip
       allTiles.forEach((t) => strip.appendChild(t));
-      // Keep content tile available in strip for swap-back after peer focus — not needed while content is focused
+    } else if (waitingFocus && !remotePeerCount()) {
+      const waiting = ensureWaitingTile();
+      main.appendChild(waiting);
+      allTiles.forEach((t) => strip.appendChild(t));
     } else {
       let focusTile =
         allTiles.find((t) => (t.dataset.focus || "") === stageFocus) ||
-        allTiles.find((t) => t.classList.contains("local") && stageFocus === "local") ||
         allTiles.find((t) => t.dataset.peer === stageFocus) ||
-        allTiles[0];
+        allTiles.find((t) => t.classList.contains("remote")) ||
+        null;
+      // Prefer remote over local for hero
+      if (focusTile && focusTile.classList.contains("local") && remotePeerCount()) {
+        focusTile = allTiles.find((t) => t.classList.contains("remote")) || focusTile;
+      }
       if (focusTile) {
         focusTile.classList.add("party-focus-active");
         main.appendChild(focusTile);
+      } else {
+        main.appendChild(ensureWaitingTile());
       }
       allTiles.forEach((t) => {
         if (t !== focusTile) strip.appendChild(t);
@@ -713,16 +909,37 @@
   function syncControlsUi() {
     const muteBtn = document.getElementById("partyAvMute");
     const camBtn = document.getElementById("partyAvCam");
+    const mirrorBtn = document.getElementById("partyAvMirror");
+    const duckBtn = document.getElementById("partyAvDuck");
     const title = document.getElementById("partyAvTitle");
     if (muteBtn) {
       muteBtn.textContent = muted ? "🔇" : "🎤";
       muteBtn.classList.toggle("off", muted);
       muteBtn.title = muted ? "Unmute mic" : "Mute mic";
+      muteBtn.setAttribute("aria-label", muted ? "Unmute microphone" : "Mute microphone");
+      muteBtn.setAttribute("aria-pressed", muted ? "true" : "false");
     }
     if (camBtn) {
       camBtn.hidden = !wantsVideo() || provider === "jitsi";
       camBtn.textContent = camOff ? "🚫" : "📷";
       camBtn.classList.toggle("off", camOff);
+      camBtn.title = camOff ? "Turn camera on" : "Turn camera off";
+      camBtn.setAttribute("aria-label", camOff ? "Camera off" : "Camera on");
+      camBtn.setAttribute("aria-pressed", camOff ? "true" : "false");
+    }
+    if (mirrorBtn) {
+      mirrorBtn.hidden = !wantsVideo() || provider === "jitsi";
+      mirrorBtn.classList.toggle("off", !mirrorLocal);
+      mirrorBtn.title = mirrorLocal ? "Mirror my video (on)" : "Mirror my video (off)";
+      mirrorBtn.setAttribute("aria-label", "Mirror my video");
+      mirrorBtn.setAttribute("aria-pressed", mirrorLocal ? "true" : "false");
+    }
+    if (duckBtn) {
+      duckBtn.hidden = provider === "jitsi";
+      duckBtn.classList.toggle("off", !duckTv);
+      duckBtn.title = duckTv ? "Duck TV while talking (on)" : "Duck TV while talking (off)";
+      duckBtn.setAttribute("aria-label", "Duck TV audio while talking");
+      duckBtn.setAttribute("aria-pressed", duckTv ? "true" : "false");
     }
     if (title) {
       title.textContent = mode === "voice" ? "Voice" : mode === "hybrid" ? "Hybrid" : "Video";
@@ -743,23 +960,106 @@
     });
   }
 
-  async function getLocalMedia() {
-    if (localStream) {
-      localStream.getTracks().forEach((t) => t.stop());
-      localStream = null;
+  function applyLocalMirror() {
+    const vid = document.getElementById("partyAvLocalVideo");
+    if (!vid) return;
+    vid.classList.toggle("party-av-mirrored", !!mirrorLocal);
+    // Never mirror remotes
+    document.querySelectorAll(".party-av-tile.remote video").forEach((v) => {
+      v.classList.remove("party-av-mirrored");
+    });
+  }
+
+  function setTileAvatar(tile, name, show) {
+    if (!tile) return;
+    let av = tile.querySelector(".party-av-avatar");
+    if (!show) {
+      if (av) av.hidden = true;
+      return;
     }
-    const constraints = {
-      audio: true,
-      video: wantsVideo()
-        ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
-        : false,
-    };
+    const m = Media();
+    const initials = m ? m.initialsFromName(name) : "?";
+    if (!av) {
+      av = document.createElement("div");
+      av.className = "party-av-avatar";
+      av.setAttribute("aria-hidden", "true");
+      tile.appendChild(av);
+    }
+    av.textContent = initials;
+    av.hidden = false;
+  }
+
+  function stopSpeechMonitor(id) {
+    const mon = speechMonitors[id];
+    if (mon) {
+      try {
+        mon.stop();
+      } catch (e) {}
+      delete speechMonitors[id];
+    }
+    const tile =
+      id === "local"
+        ? document.getElementById("partyAvLocalTile")
+        : document.getElementById("partyAvPeer_" + id);
+    if (tile) tile.classList.remove("speaking");
+    if (programDucker) programDucker.setSpeaking(id, false);
+  }
+
+  function stopAllSpeechMonitors() {
+    Object.keys(speechMonitors).forEach(stopSpeechMonitor);
+    if (programDucker) {
+      programDucker.stop();
+      programDucker = null;
+    }
+  }
+
+  function ensureProgramDucker() {
+    const m = Media();
+    if (!m) return null;
+    if (!programDucker) programDucker = m.createProgramDucker();
+    return programDucker;
+  }
+
+  function startSpeechMonitor(id, stream, tile) {
+    const m = Media();
+    if (!m || !stream) return;
+    stopSpeechMonitor(id);
+    ensureProgramDucker();
+    const mon = m.createSpeechMonitor(stream, {
+      id: id,
+      onSpeaking: function (on, mid) {
+        if (tile) tile.classList.toggle("speaking", !!on);
+        if (programDucker) programDucker.setSpeaking(mid || id, !!on);
+      },
+    });
+    speechMonitors[id] = mon;
+  }
+
+  async function getLocalMedia() {
+    // Prefer track enable/disable over full renegotiation; only reacquire when needed.
+    const needVideo = wantsVideo() && !camOff;
+    const haveAudio = localStream && localStream.getAudioTracks().some((t) => t.readyState === "live");
+    const haveVideo = localStream && localStream.getVideoTracks().some((t) => t.readyState === "live");
+    if (localStream && haveAudio && (!needVideo || haveVideo)) {
+      if (muted) localStream.getAudioTracks().forEach((t) => (t.enabled = false));
+      else localStream.getAudioTracks().forEach((t) => (t.enabled = true));
+      if (camOff) localStream.getVideoTracks().forEach((t) => (t.enabled = false));
+      else localStream.getVideoTracks().forEach((t) => (t.enabled = true));
+      return localStream;
+    }
+
+    const m = Media();
+    const audioConstraints = m ? m.buildAudioConstraints() : true;
+    const videoConstraints = needVideo ? (m ? m.buildVideoConstraints() : { facingMode: "user" }) : false;
+    const constraints = { audio: audioConstraints, video: videoConstraints };
+
+    let newStream = null;
     try {
-      localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      newStream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch (e) {
-      if (wantsVideo()) {
+      if (needVideo) {
         try {
-          localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          newStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
           toast("Camera unavailable — audio only");
           camOff = true;
         } catch (e2) {
@@ -771,8 +1071,20 @@
         throw e;
       }
     }
+
+    // If we already had a stream, replace tracks on peers then stop old tracks.
+    const old = localStream;
+    localStream = newStream;
     if (muted) localStream.getAudioTracks().forEach((t) => (t.enabled = false));
     if (camOff) localStream.getVideoTracks().forEach((t) => (t.enabled = false));
+    await replaceLocalTracksOnPeers();
+    if (old && old !== localStream) {
+      old.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch (err) {}
+      });
+    }
     return localStream;
   }
 
@@ -786,20 +1098,25 @@
       tile.className = "party-av-tile local";
       tile.dataset.focus = "local";
       tile.innerHTML =
-        '<video playsinline autoplay muted id="partyAvLocalVideo"></video>' +
+        '<video playsinline autoplay muted id="partyAvLocalVideo" class="party-av-mirrored"></video>' +
+        '<div class="party-av-avatar" aria-hidden="true">You</div>' +
         '<span class="party-av-label">You</span>';
       const strip = document.getElementById("partyAvFilmstrip");
       const main = document.getElementById("partyAvMainStage");
       if (stageLayoutActive && strip) strip.appendChild(tile);
       else if (stageLayoutActive && main) main.appendChild(tile);
-      else stage.prepend(tile);
+      else stage.appendChild(tile);
     }
     const vid = document.getElementById("partyAvLocalVideo");
     if (vid && localStream && vid.srcObject !== localStream) {
       vid.srcObject = localStream;
       vid.play().catch(() => {});
     }
-    tile.classList.toggle("audio-only", !wantsVideo() || camOff || !localStream || !localStream.getVideoTracks().length);
+    applyLocalMirror();
+    const audioOnly = !wantsVideo() || camOff || !localStream || !localStream.getVideoTracks().length;
+    tile.classList.toggle("audio-only", audioOnly);
+    setTileAvatar(tile, "You", audioOnly);
+    if (localStream) startSpeechMonitor("local", localStream, tile);
     const overlay = document.getElementById("partyAvOverlay");
     if (overlay && overlay.classList.contains("party-av-idle")) syncIdleVideoFocus();
     syncStageLayout();
@@ -810,6 +1127,7 @@
     if (!stage) return null;
     const id = "partyAvPeer_" + peerId;
     let tile = document.getElementById(id);
+    const labelName = name || remoteStates[peerId]?.displayName || "Peer";
     if (!tile) {
       tile = document.createElement("div");
       tile.id = id;
@@ -820,18 +1138,35 @@
         '<video playsinline autoplay id="partyAvVid_' +
         peerId +
         '"></video>' +
+        '<div class="party-av-avatar" aria-hidden="true"></div>' +
         '<span class="party-av-label"></span>';
       const strip = document.getElementById("partyAvFilmstrip");
+      const primary = document.getElementById("partyAvPrimary");
       if (stageLayoutActive && strip) strip.appendChild(tile);
+      else if (remoteFirstActive && primary) primary.appendChild(tile);
       else stage.appendChild(tile);
+      onRemoteJoined(peerId);
     }
     const label = tile.querySelector(".party-av-label");
-    if (label) label.textContent = name || remoteStates[peerId]?.displayName || "Peer";
+    if (label) label.textContent = labelName;
+    const vid = document.getElementById("partyAvVid_" + peerId);
+    if (vid) vid.classList.remove("party-av-mirrored");
+    const st = remoteStates[peerId];
+    const camOffRemote = st && st.camOff;
+    const hasVid =
+      vid &&
+      vid.srcObject &&
+      vid.srcObject.getVideoTracks &&
+      vid.srcObject.getVideoTracks().some((t) => t.enabled && t.readyState !== "ended");
+    const audioOnly = !!camOffRemote || !hasVid;
+    tile.classList.toggle("audio-only", audioOnly);
+    setTileAvatar(tile, labelName, audioOnly);
     syncStageLayout();
     return tile;
   }
 
   function removeRemoteTile(peerId) {
+    stopSpeechMonitor(peerId);
     const tile = document.getElementById("partyAvPeer_" + peerId);
     if (tile) tile.remove();
     if (stageFocus === peerId) stageFocus = defaultStageFocus();
@@ -856,8 +1191,67 @@
     return { iceServers: ICE_SERVERS };
   }
 
+  function attachLocalTracks(pc) {
+    if (!localStream || !pc) return 0;
+    const have = new Set(
+      pc
+        .getSenders()
+        .map((s) => (s.track && s.track.kind) || "")
+        .filter(Boolean)
+    );
+    let added = 0;
+    localStream.getTracks().forEach((track) => {
+      if (have.has(track.kind)) return;
+      try {
+        pc.addTrack(track, localStream);
+        added += 1;
+      } catch (e) {}
+    });
+    return added;
+  }
+
+  /** Gapless: swap tracks on existing senders instead of recreating PeerConnections. */
+  async function replaceLocalTracksOnPeers() {
+    if (!localStream) return;
+    const ops = [];
+    Object.keys(peers).forEach((id) => {
+      const entry = peers[id];
+      if (!entry || !entry.pc) return;
+      const pc = entry.pc;
+      const senders = pc.getSenders();
+      localStream.getTracks().forEach((track) => {
+        const sender = senders.find((s) => s.track && s.track.kind === track.kind);
+        if (sender) {
+          ops.push(
+            Promise.resolve(sender.replaceTrack(track)).catch(() => {
+              /* ignore */
+            })
+          );
+        } else {
+          try {
+            pc.addTrack(track, localStream);
+          } catch (e) {}
+        }
+      });
+    });
+    if (ops.length) await Promise.all(ops);
+  }
+
+  /** If gUM finished after a peer PC was created empty, attach tracks so renegotiation can send A/V. */
+  function attachLocalTracksToPeers() {
+    if (!localStream) return;
+    Object.keys(peers).forEach((id) => {
+      const entry = peers[id];
+      if (!entry || !entry.pc) return;
+      attachLocalTracks(entry.pc);
+    });
+    replaceLocalTracksOnPeers().catch(() => {});
+  }
+
   async function ensurePeer(peerId, polite) {
     if (peers[peerId]) return peers[peerId];
+    // Wait for local media so offers/answers always include mic/camera tracks.
+    if (!localStream) return null;
     const pc = new RTCPeerConnection(pcConfig());
     const entry = {
       pc: pc,
@@ -867,9 +1261,7 @@
     };
     peers[peerId] = entry;
 
-    if (localStream) {
-      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
-    }
+    attachLocalTracks(pc);
 
     pc.onicecandidate = (ev) => {
       if (!ev.candidate) return;
@@ -884,16 +1276,25 @@
       const tile = ensureRemoteTile(peerId, remoteStates[peerId]?.displayName);
       const vid = document.getElementById("partyAvVid_" + peerId);
       const stream = ev.streams && ev.streams[0] ? ev.streams[0] : new MediaStream([ev.track]);
-      if (vid && vid.srcObject !== stream) {
-        vid.srcObject = stream;
-        vid.play().catch(() => {});
+      if (vid) {
+        vid.classList.remove("party-av-mirrored");
+        if (vid.srcObject !== stream) {
+          vid.srcObject = stream;
+          vid.play().catch(() => {});
+        }
       }
       if (tile) {
         const hasVid = stream.getVideoTracks().some((t) => t.enabled && t.readyState !== "ended");
-        tile.classList.toggle("audio-only", !hasVid);
+        const st = remoteStates[peerId];
+        const audioOnly = (st && st.camOff) || !hasVid;
+        tile.classList.toggle("audio-only", audioOnly);
+        setTileAvatar(tile, remoteStates[peerId]?.displayName || "Peer", audioOnly);
+        startSpeechMonitor(peerId, stream, tile);
       }
+      onRemoteJoined(peerId);
       const overlay = document.getElementById("partyAvOverlay");
       if (overlay && overlay.classList.contains("party-av-idle")) syncIdleVideoFocus();
+      syncStageLayout();
     };
 
     pc.onnegotiationneeded = async () => {
@@ -914,6 +1315,7 @@
 
   async function connectToPeer(peerId) {
     if (!peerId || peerId === myMemberId || peers[peerId]) return;
+    if (!localStream) return;
     // Perfect negotiation: higher id is polite (answers glare)
     const polite = String(myMemberId) > String(peerId);
     await ensurePeer(peerId, polite);
@@ -922,8 +1324,10 @@
   async function handleOffer(msg) {
     const from = msg.from;
     if (!from || from === myMemberId) return;
+    if (!localStream) return;
     const polite = String(myMemberId) > String(from);
     const entry = await ensurePeer(from, polite);
+    if (!entry) return;
     const pc = entry.pc;
     const offerCollision = entry.makingOffer || pc.signalingState !== "stable";
     entry.ignoreOffer = !entry.polite && offerCollision;
@@ -1005,35 +1409,50 @@
     const stage = document.getElementById("partyAvStage");
     if (stage) {
       stage.classList.remove("jitsi");
-      stage.innerHTML = "";
+      // Keep existing tiles/PCs when restarting media if possible; only clear jitsi.
+      if (!localStream) stage.innerHTML = "";
     }
     await getLocalMedia();
     ensureLocalTile();
+    // Peers may have been signaled while gUM was pending — attach now, then mesh.
+    attachLocalTracksToPeers();
     broadcastAvState(true);
     // Connect to anyone already advertising inCall
     Object.keys(remoteStates).forEach((id) => {
       if (remoteStates[id] && remoteStates[id].inCall) connectToPeer(id).catch(() => {});
     });
+    syncStageLayout();
+  }
+
+  function loadUxPrefs() {
+    const m = Media();
+    mirrorLocal = m ? m.getMirrorLocal() : true;
+    duckTv = m ? m.getDuckEnabled() : true;
   }
 
   async function startInternal(m) {
     mode = m;
     provider = getProvider();
-    stageFocus = mode === "hybrid" ? "content" : "local";
+    loadUxPrefs();
+    stageFocus = defaultStageFocus();
     stageLayoutActive = false;
+    remoteFirstActive = false;
     const el = ensureOverlay();
     el.classList.add("open");
-    el.classList.remove("party-stage-mode", "party-stage-content-focus");
+    el.classList.remove("party-stage-mode", "party-stage-content-focus", "party-av-remote-first", "party-av-voice-only");
     placeDefault();
     syncProviderUi();
     syncControlsUi();
     markActive();
-    active = true;
+    // Keep active=false until local media is ready so remote av_state cannot
+    // create sendrecv PCs with zero outbound tracks (one-way / black remote tiles).
     if (provider === "jitsi") {
+      active = true;
       startJitsiInOverlay();
     } else {
       try {
         await startWebRtc();
+        active = true;
       } catch (e) {
         active = false;
         el.classList.remove("open");
@@ -1047,8 +1466,10 @@
   function stopInternal() {
     active = false;
     stageLayoutActive = false;
-    stageFocus = "content";
+    remoteFirstActive = false;
+    stageFocus = "waiting";
     clearTimeout(idleTimer);
+    stopAllSpeechMonitors();
     if (provider === "webrtc" || localStream) {
       try {
         broadcastAvState(false);
@@ -1062,7 +1483,15 @@
     }
     const el = document.getElementById("partyAvOverlay");
     if (el) {
-      el.classList.remove("open", "idle", "party-av-idle", "party-stage-mode", "party-stage-content-focus");
+      el.classList.remove(
+        "open",
+        "idle",
+        "party-av-idle",
+        "party-stage-mode",
+        "party-stage-content-focus",
+        "party-av-remote-first",
+        "party-av-voice-only"
+      );
       el.style.opacity = "";
     }
     const layerEl = layer();
@@ -1086,11 +1515,51 @@
   function toggleCam() {
     if (!wantsVideo()) return;
     camOff = !camOff;
-    if (localStream) localStream.getVideoTracks().forEach((t) => (t.enabled = !camOff));
+    if (localStream) {
+      const vids = localStream.getVideoTracks();
+      if (vids.length) {
+        vids.forEach((t) => (t.enabled = !camOff));
+      } else if (!camOff) {
+        // Need a camera track — reacquire without tearing down PCs
+        getLocalMedia()
+          .then(() => {
+            ensureLocalTile();
+            return replaceLocalTracksOnPeers();
+          })
+          .catch(() => {
+            camOff = true;
+            syncControlsUi();
+          });
+      }
+    }
     ensureLocalTile();
     syncControlsUi();
     markActive();
     if (active && provider === "webrtc") broadcastAvState(true);
+  }
+
+  function toggleMirror() {
+    mirrorLocal = !mirrorLocal;
+    const m = Media();
+    if (m) m.setMirrorLocal(mirrorLocal);
+    applyLocalMirror();
+    syncControlsUi();
+    markActive();
+  }
+
+  function toggleDuck() {
+    duckTv = !duckTv;
+    const m = Media();
+    if (m) m.setDuckEnabled(duckTv);
+    if (!duckTv) {
+      if (programDucker) programDucker.stop();
+      programDucker = null;
+    } else {
+      ensureProgramDucker();
+      if (programDucker) programDucker.refresh();
+    }
+    syncControlsUi();
+    markActive();
   }
 
   function hangUp() {
@@ -1194,6 +1663,7 @@
   } catch (e) {}
 
   provider = getProvider();
+  loadUxPrefs();
 
   window.SDPartyAV = {
     LS_PROVIDER,

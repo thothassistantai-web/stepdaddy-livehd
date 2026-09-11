@@ -3,9 +3,11 @@
   if (window.__sdPullReload) return;
   window.__sdPullReload = true;
 
-  const THRESHOLD = 72;
-  const HOLD_MS = 700;
-  const EDGE_PX = 96;
+  // Raised threshold + hold — accidental scroll must not reload.
+  const THRESHOLD = 120;
+  const HOLD_MS = 850;
+  const EDGE_PX = 72;
+  const AXIS_BIAS = 14; // require clearly-vertical intent
 
   const style = document.createElement("style");
   style.textContent =
@@ -42,10 +44,35 @@
   let armed = false;
   let reloading = false;
 
+  function musicCatalogOpen() {
+    const c = document.getElementById("musicCatalog");
+    return !!(c && c.classList.contains("open"));
+  }
+
   function scrollAtTop() {
     if ((window.scrollY || document.documentElement.scrollTop || 0) > 2) return false;
     const nodes = document.querySelectorAll(
-      ".vod-catalog-body,.vod-detail-scroll,.epg-panel,.grid-scroll,#gridScroll,.xray-scroll,.settings-body,.vod-picker-body,.party-drawer .chat"
+      [
+        ".vod-catalog-body",
+        ".vod-detail-scroll",
+        ".epg-panel",
+        ".grid-scroll",
+        "#gridScroll",
+        ".xray-scroll",
+        ".settings-body",
+        ".vod-picker-body",
+        ".party-drawer .chat",
+        /* Music catalog vertical scrollers (sheet body itself is overflow:hidden) */
+        ".mh-body",
+        ".ml-body",
+        ".mr-body",
+        ".mr-main",
+        ".ms-results",
+        "#musicCatalog .music-home-body",
+        "#musicCatalog .sd-music-home",
+        "#musicCatalog .sd-music-listen",
+        "#musicCatalog .sd-music-radio",
+      ].join(",")
     );
     for (const n of nodes) {
       try {
@@ -68,6 +95,11 @@
 
   function doReload() {
     if (reloading) return;
+    // Never reload while Music sheet owns the viewport.
+    if (musicCatalogOpen()) {
+      reset();
+      return;
+    }
     reloading = true;
     if (lbl) lbl.textContent = "Reloading…";
     el.classList.add("show", "holding");
@@ -99,9 +131,11 @@
     }
   }
 
-  function onStart(y, x, fromEdge) {
+  function onStart(y, x) {
     if (reloading) return;
-    if (!scrollAtTop() && !fromEdge) return;
+    // Music catalog: disable pull-to-reload entirely (nested shelves + body scroll).
+    if (musicCatalogOpen()) return;
+    if (!scrollAtTop()) return;
     tracking = true;
     startY = y;
     startX = x;
@@ -111,13 +145,23 @@
 
   function onMove(y, x) {
     if (!tracking || reloading) return;
+    if (musicCatalogOpen()) {
+      reset();
+      return;
+    }
     const dy = y - startY;
     const dx = x - startX;
-    if (Math.abs(dx) > Math.abs(dy) + 8 && dy < THRESHOLD / 2) {
+    // Horizontal shelf pans / diagonal scrolls must never arm reload.
+    if (Math.abs(dx) + AXIS_BIAS >= Math.abs(dy) || Math.abs(dx) > 28) {
       reset();
       return;
     }
     if (dy < 0) {
+      reset();
+      return;
+    }
+    // Still require true top — mid-scroll bounce must not arm.
+    if (!scrollAtTop()) {
       reset();
       return;
     }
@@ -151,10 +195,12 @@
     "touchstart",
     (e) => {
       if (!e.touches || !e.touches.length) return;
+      if (musicCatalogOpen()) return;
       const t = e.touches[0];
-      const fromEdge = t.clientY <= EDGE_PX;
-      if (!scrollAtTop() && !fromEdge) return;
-      onStart(t.clientY, t.clientX, fromEdge);
+      // Top-edge shortcut only when already at scroll top (never mid-scroll).
+      if (!scrollAtTop()) return;
+      if (t.clientY > EDGE_PX && !scrollAtTop()) return;
+      onStart(t.clientY, t.clientX);
     },
     { passive: true }
   );
@@ -170,13 +216,15 @@
   document.addEventListener("touchend", onEnd, { passive: true });
   document.addEventListener("touchcancel", onEnd, { passive: true });
 
-  // Desktop: drag from top edge with mouse
+  // Desktop: drag from top edge with mouse (not inside Music catalog)
   let mouseDown = false;
   document.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
-    if (e.clientY > EDGE_PX && !scrollAtTop()) return;
+    if (musicCatalogOpen()) return;
+    if (!scrollAtTop()) return;
+    if (e.clientY > EDGE_PX) return;
     mouseDown = true;
-    onStart(e.clientY, e.clientX, e.clientY <= EDGE_PX);
+    onStart(e.clientY, e.clientX);
   });
   document.addEventListener("mousemove", (e) => {
     if (!mouseDown) return;

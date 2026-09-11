@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,10 @@ DEFAULT_FEATURES: dict[str, bool] = {
 }
 SYNC_LIVE_MODES = frozenset({"off", "content", "catchup", "lag", "pdt"})
 DEFAULT_SYNC_LIVE_MODE = "content"
+LAN_PRESENCE_TTL_S = 75.0
+LAN_HEARTBEAT_MIN_S = 8.0
+LAN_FP_RE = re.compile(r"^[a-f0-9]{8,64}$", re.I)
+LAN_KEY_RE = re.compile(r"^[A-Z0-9]{4,6}$")
 _GIF_URL_OK = re.compile(r"^https://[^\s<>\"']+\.(?:gif|webp|mp4)(?:\?[^\s<>\"']*)?$", re.I)
 _GIF_HOST_OK = re.compile(
     r"^https://(?:media\d*\.giphy\.com|i\.giphy\.com|media\.tenor\.com|c\.tenor\.com|media1\.tenor\.com)/",
@@ -99,9 +104,163 @@ def _normalize_sync_live_mode(raw: Any) -> str:
 _rooms: dict[str, Room] = {}
 _remote_tokens: dict[str, dict[str, Any]] = {}
 _reaction_at: dict[str, float] = {}
+# LAN / nearby presence beacons (server-assisted same-network discovery).
+# code -> {code, name, title, watchPath, locked, public, networkFingerprint, publicIpHash, lanKey, ts, hostKey}
+_lan_presence: dict[str, dict[str, Any]] = {}
+_lan_heartbeat_at: dict[str, float] = {}
 _member_seq = 0
 _room_number_seq = 100
 _lock = asyncio.Lock()
+# channelId -> logo URL (best-effort; filled lazily from catalog)
+_channel_logo_cache: dict[str, str | None] = {}
+_channel_logo_cache_ts: float = 0.0
+_CHANNEL_LOGO_CACHE_TTL_S = 120.0
+
+
+def _refresh_channel_logo_cache(force: bool = False) -> None:
+    """Best-effort map of live channel ids → logo paths for party cards."""
+    global _channel_logo_cache, _channel_logo_cache_ts
+    now = time.time()
+    if (
+        not force
+        and _channel_logo_cache
+        and (now - _channel_logo_cache_ts) < _CHANNEL_LOGO_CACHE_TTL_S
+    ):
+        return
+    logos: dict[str, str | None] = {}
+    try:
+        from StepDaddyLiveHD.backend import get_channels
+
+        for ch in get_channels(include_dead=True, force_refresh=False) or []:
+            cid = str(getattr(ch, "id", "") or "").strip()
+            if not cid:
+                continue
+            logo = getattr(ch, "logo", None)
+            logos[cid] = str(logo).strip() if logo else None
+    except Exception:
+        try:
+            from StepDaddyLiveHD import step_daddy
+
+            for ch in getattr(step_daddy, "channels", []) or []:
+                cid = str(getattr(ch, "id", "") or "").strip()
+                if not cid:
+                    continue
+                logo = getattr(ch, "logo", None)
+                logos[cid] = str(logo).strip() if logo else None
+        except Exception:
+            return
+    _channel_logo_cache = logos
+    _channel_logo_cache_ts = now
+
+
+def _lookup_channel_logo(channel_id: Any) -> str | None:
+    cid = str(channel_id or "").strip()
+    if not cid:
+        return None
+    _refresh_channel_logo_cache()
+    logo = _channel_logo_cache.get(cid)
+    return logo if logo else None
+
+
+def _usable_art_url(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s or s.lower() in {"null", "undefined", "none"}:
+        return None
+    return s
+
+
+def _content_logo_path(content: dict[str, Any] | None) -> str | None:
+    c = content if isinstance(content, dict) else {}
+    direct = _usable_art_url(c.get("logoPath") or c.get("logo_path") or c.get("logo"))
+    if direct:
+        return direct
+    return _lookup_channel_logo(c.get("channelId") or c.get("channel_id"))
+
+
+def _content_poster_path(content: dict[str, Any] | None) -> str | None:
+    """Poster for cards: VOD poster → explicit logo → channel catalog logo."""
+    c = content if isinstance(content, dict) else {}
+    poster = _usable_art_url(
+        c.get("posterPath") or c.get("poster_url") or c.get("poster_path") or c.get("image")
+    )
+    if poster:
+        return poster
+    return _content_logo_path(c)
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client:
+        return request.client.host or "unknown"
+    return "unknown"
+
+
+def _public_ip_hash(ip: str) -> str:
+    raw = (ip or "unknown").strip().lower()
+    return hashlib.sha256(f"pubip:{raw}".encode("utf-8")).hexdigest()[:24]
+
+
+def _normalize_fp(raw: Any) -> str:
+    fp = str(raw or "").strip().lower()
+    if not LAN_FP_RE.match(fp):
+        return ""
+    return fp[:64]
+
+
+def _normalize_lan_key(raw: Any) -> str:
+    key = str(raw or "").strip().upper()
+    if not LAN_KEY_RE.match(key):
+        return ""
+    return key
+
+
+def _new_lan_key() -> str:
+    return "".join(secrets.choice(CODE_ALPHABET) for _ in range(4))
+
+
+def _purge_lan_presence(now: float | None = None) -> None:
+    ts = now if now is not None else time.time()
+    dead = [c for c, row in _lan_presence.items() if ts - float(row.get("ts") or 0) > LAN_PRESENCE_TTL_S]
+    for c in dead:
+        _lan_presence.pop(c, None)
+        _lan_heartbeat_at.pop(c, None)
+
+
+def _nearby_card(row: dict[str, Any]) -> dict[str, Any]:
+    """Public nearby card — never includes passwords or host keys."""
+    age = max(0, int(time.time() - float(row.get("ts") or 0)))
+    content = row.get("content") if isinstance(row.get("content"), dict) else {}
+    code = str(row.get("code") or "")
+    room = _rooms.get(code) if code else None
+    if room and isinstance(room.content, dict):
+        content = room.content
+    channel_id = (
+        row.get("channelId")
+        or content.get("channelId")
+        or content.get("channel_id")
+    )
+    poster = _usable_art_url(row.get("posterPath")) or _content_poster_path(content)
+    logo = _usable_art_url(row.get("logoPath")) or _content_logo_path(content)
+    return {
+        "code": row.get("code"),
+        "name": row.get("name") or "Watch Party",
+        "title": row.get("title") or "",
+        "watchPath": row.get("watchPath") or "/tv/",
+        "locked": bool(row.get("locked")),
+        "public": bool(row.get("public")),
+        "lanKey": row.get("lanKey") or None,
+        "memberCount": row.get("memberCount"),
+        "ageSeconds": age,
+        "match": row.get("match") or "network",
+        "posterPath": poster,
+        "logoPath": logo,
+        "channelId": channel_id,
+        "mediaType": content.get("mediaType") or row.get("mediaType") or None,
+    }
 
 
 def _default_features() -> dict[str, bool]:
@@ -184,14 +343,24 @@ def _public_member(m: Member) -> dict[str, Any]:
 
 def _normalize_content(raw: dict[str, Any] | None) -> dict[str, Any]:
     c = raw if isinstance(raw, dict) else {}
+    channel_id = c.get("channelId") or c.get("channel_id")
+    poster = _usable_art_url(
+        c.get("posterPath") or c.get("poster_url") or c.get("poster_path") or c.get("image")
+    )
+    logo = _usable_art_url(c.get("logoPath") or c.get("logo_path") or c.get("logo"))
+    if not logo and channel_id:
+        logo = _lookup_channel_logo(channel_id)
+    if not poster:
+        poster = logo
     return {
         "tmdbId": c.get("tmdbId") or c.get("tmdb_id"),
         "mediaType": c.get("mediaType") or c.get("type") or "movie",
         "title": str(c.get("title") or "Untitled")[:200],
-        "posterPath": c.get("posterPath") or c.get("poster_url") or c.get("posterPath"),
+        "posterPath": poster,
+        "logoPath": logo,
         "season": c.get("season"),
         "episode": c.get("episode"),
-        "channelId": c.get("channelId") or c.get("channel_id"),
+        "channelId": channel_id,
         "hls": bool(c.get("hls")),
     }
 
@@ -225,12 +394,15 @@ def _list_card(room: Room) -> dict[str, Any]:
     content = room.content or {}
     media = str(content.get("mediaType") or "movie").lower()
     channel_id = content.get("channelId") or content.get("channel_id")
+    poster = _content_poster_path(content)
+    logo = _content_logo_path(content)
     return {
         "code": room.code,
         "name": room.name or _default_room_name(content, room.room_number or 0, room.code),
         "roomNumber": room.room_number,
         "title": content.get("title") or "",
-        "posterPath": content.get("posterPath"),
+        "posterPath": poster,
+        "logoPath": logo,
         "mediaType": media,
         "channelId": channel_id,
         "memberCount": _member_count(room),
@@ -257,9 +429,12 @@ def _purge_idle() -> None:
     dead = [c for c, r in _rooms.items() if now - r.last_active * 1000 > IDLE_MS and not r.members]
     for c in dead:
         _rooms.pop(c, None)
+        _lan_presence.pop(c, None)
+        _lan_heartbeat_at.pop(c, None)
     expired = [t for t, meta in _remote_tokens.items() if meta.get("exp", 0) < time.time()]
     for t in expired:
         _remote_tokens.pop(t, None)
+    _purge_lan_presence()
 
 
 def create_remote_token(host_session: str, channel_id: str | None = None, room_code: str | None = None) -> dict[str, Any]:
@@ -293,15 +468,21 @@ def _content_watch_path(content: dict[str, Any] | None) -> str:
             return f"/tv/{channel}"
         return "/tv/"
     if tmdb:
+        imdb = str(c.get("imdbId") or c.get("imdb_id") or "").strip()
         if media in ("tv", "series", "show"):
             path = f"/vod/tv/{int(tmdb)}"
             qs = []
+            if imdb.startswith("tt"):
+                qs.append(f"imdb={urllib.parse.quote(imdb)}")
             if c.get("season"):
                 qs.append(f"season={int(c['season'])}")
             if c.get("episode"):
                 qs.append(f"episode={int(c['episode'])}")
             return path + (("?" + "&".join(qs)) if qs else "")
-        return f"/vod/movie/{int(tmdb)}"
+        path = f"/vod/movie/{int(tmdb)}"
+        if imdb.startswith("tt"):
+            return path + "?imdb=" + urllib.parse.quote(imdb)
+        return path
     if channel:
         return f"/tv/{channel}"
     return "/tv/"
@@ -404,13 +585,17 @@ async def party_presence():
         for m in room.members.values():
             if m.kind == "remote":
                 continue
+            content = room.content if isinstance(room.content, dict) else {}
             card: dict[str, Any] = {
                 "displayName": m.display_name,
-                "title": (room.content or {}).get("title") or "",
+                "title": content.get("title") or "",
                 "public": bool(room.is_public),
                 "roomName": room.name
                 if room.is_public
                 else (room.name or "Private room"),
+                "posterPath": _content_poster_path(content),
+                "logoPath": _content_logo_path(content),
+                "channelId": content.get("channelId") or content.get("channel_id"),
             }
             if room.is_public:
                 card["code"] = room.code
@@ -425,9 +610,226 @@ async def party_presence():
     }
 
 
+@router.post("/party/presence/lan")
+async def party_presence_lan(request: Request):
+    """Host heartbeat: announce this party as discoverable on the same Wi‑Fi / household.
+
+    Clients send a networkFingerprint (hash of local RFC1918 /24) when WebRTC/LAN
+    probe works. Server also records a hash of the public client IP so guests behind
+    the same NAT can discover without a LAN probe. Never stores or returns passwords.
+    """
+    _purge_idle()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    code = str(body.get("code") or "").strip().upper()
+    if not code or code not in _rooms:
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+    room = _rooms[code]
+    host_key = str(body.get("hostKey") or body.get("host_key") or "").strip()
+    if not host_key or host_key != room.host_key:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
+    visible = body.get("visible")
+    if visible is None:
+        visible = body.get("appearNearby", True)
+    if not bool(visible):
+        _lan_presence.pop(code, None)
+        _lan_heartbeat_at.pop(code, None)
+        return {"ok": True, "visible": False, "cleared": True}
+
+    now = time.time()
+    last = float(_lan_heartbeat_at.get(code) or 0)
+    if now - last < LAN_HEARTBEAT_MIN_S and code in _lan_presence:
+        row = _lan_presence[code]
+        return {
+            "ok": True,
+            "visible": True,
+            "throttled": True,
+            "lanKey": row.get("lanKey"),
+            "expiresIn": max(0, int(LAN_PRESENCE_TTL_S - (now - float(row.get("ts") or now)))),
+        }
+
+    fp = _normalize_fp(body.get("networkFingerprint") or body.get("fingerprint"))
+    lan_key = _normalize_lan_key(body.get("lanKey") or body.get("lan_key"))
+    existing = _lan_presence.get(code) or {}
+    if not lan_key:
+        lan_key = _normalize_lan_key(existing.get("lanKey")) or _new_lan_key()
+
+    pub_hash = _public_ip_hash(_client_ip(request))
+    title = str(body.get("title") or (room.content or {}).get("title") or "")[:200]
+    name = _sanitize_name(body.get("name"), room.name or _default_room_name(room.content, room.room_number or 0, code))
+    watch = str(body.get("watchPath") or body.get("watch_path") or _content_watch_path(room.content) or "/tv/")[:240]
+
+    content = room.content if isinstance(room.content, dict) else {}
+    _lan_presence[code] = {
+        "code": code,
+        "name": name,
+        "title": title,
+        "watchPath": watch,
+        "locked": bool(room.password_hash),
+        "public": bool(room.is_public),
+        "networkFingerprint": fp or existing.get("networkFingerprint") or "",
+        "publicIpHash": pub_hash,
+        "lanKey": lan_key,
+        "memberCount": _member_count(room),
+        "posterPath": _content_poster_path(content),
+        "logoPath": _content_logo_path(content),
+        "channelId": content.get("channelId") or content.get("channel_id"),
+        "mediaType": content.get("mediaType"),
+        "ts": now,
+    }
+    _lan_heartbeat_at[code] = now
+    return {
+        "ok": True,
+        "visible": True,
+        "lanKey": lan_key,
+        "hasFingerprint": bool(_lan_presence[code].get("networkFingerprint")),
+        "expiresIn": int(LAN_PRESENCE_TTL_S),
+        "ttlSeconds": int(LAN_PRESENCE_TTL_S),
+    }
+
+
+@router.get("/party/nearby")
+async def party_nearby(
+    request: Request,
+    fp: str = "",
+    fingerprint: str = "",
+    lanKey: str = "",
+    lan_key: str = "",
+):
+    """List parties visible on this Wi‑Fi / household (PIN-gated like /party/presence)."""
+    _purge_idle()
+    guest_fp = _normalize_fp(fp or fingerprint)
+    guest_key = _normalize_lan_key(lanKey or lan_key)
+    guest_pub = _public_ip_hash(_client_ip(request))
+    now = time.time()
+    matches: list[dict[str, Any]] = []
+
+    for row in _lan_presence.values():
+        age = now - float(row.get("ts") or 0)
+        if age > LAN_PRESENCE_TTL_S:
+            continue
+        code = str(row.get("code") or "")
+        room = _rooms.get(code)
+        if room:
+            row["locked"] = bool(room.password_hash)
+            row["public"] = bool(room.is_public)
+            row["name"] = room.name or row.get("name")
+            row["title"] = (room.content or {}).get("title") or row.get("title") or ""
+            row["watchPath"] = _content_watch_path(room.content)
+            row["memberCount"] = _member_count(room)
+            row["posterPath"] = _content_poster_path(room.content)
+            row["logoPath"] = _content_logo_path(room.content)
+            row["channelId"] = (room.content or {}).get("channelId") or (room.content or {}).get("channel_id")
+        host_fp = _normalize_fp(row.get("networkFingerprint"))
+        host_pub = str(row.get("publicIpHash") or "")
+        host_lan = _normalize_lan_key(row.get("lanKey"))
+        match_kind = ""
+        if guest_key and host_lan and guest_key == host_lan:
+            match_kind = "lanKey"
+        elif guest_fp and host_fp and guest_fp == host_fp:
+            match_kind = "fingerprint"
+        elif (not guest_fp or not host_fp) and host_pub and guest_pub == host_pub:
+            # Soft household match when LAN probe unavailable on either side.
+            match_kind = "publicIp"
+        elif guest_fp and host_fp and guest_fp != host_fp:
+            # Explicit fingerprint disagreement — do not fall back to public IP.
+            match_kind = ""
+        if not match_kind:
+            continue
+        card = _nearby_card(row)
+        card["match"] = match_kind
+        # Never echo lanKey unless the guest already supplied the matching key
+        # (avoids leaking the short Wi‑Fi code to random household PIN users).
+        if match_kind != "lanKey":
+            card.pop("lanKey", None)
+        matches.append(card)
+
+    matches.sort(key=lambda c: (0 if c.get("match") == "lanKey" else 1 if c.get("match") == "fingerprint" else 2, -(c.get("memberCount") or 0)))
+    return {
+        "ok": True,
+        "rooms": matches[:40],
+        "count": len(matches),
+        "ttlSeconds": int(LAN_PRESENCE_TTL_S),
+        "hasFingerprint": bool(guest_fp),
+    }
+
+
 RESERVED_PARTY_CODES = frozenset(
-    {"HOME", "PUBLIC", "PRESENCE", "CREATE", "JOIN", "GIFS", "UPLOAD", "REMOTE-TOKEN"}
+    {
+        "HOME",
+        "PUBLIC",
+        "PRESENCE",
+        "NEARBY",
+        "CREATE",
+        "JOIN",
+        "GIFS",
+        "UPLOAD",
+        "REMOTE-TOKEN",
+    }
 )
+
+
+@router.get("/party/gifs")
+async def party_gifs(q: str = "", limit: int = 24):
+    """GIF search: Tenor/Giphy if API key in env, else curated sticker URLs + paste hint.
+
+    Registered before `/party/{code}` so `gifs` is not captured as a room code.
+    """
+    limit = max(1, min(40, int(limit or 24)))
+    query = (q or "party").strip()[:64] or "party"
+    giphy_key = os.environ.get("GIPHY_API_KEY") or os.environ.get("GIPHY_KEY") or ""
+    tenor_key = os.environ.get("TENOR_API_KEY") or os.environ.get("TENOR_KEY") or ""
+    results: list[dict[str, str]] = []
+
+    try:
+        import httpx
+
+        if tenor_key:
+            url = "https://tenor.googleapis.com/v2/search"
+            params = {"q": query, "key": tenor_key, "limit": limit, "media_filter": "gif,tinygif"}
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.get(url, params=params)
+                data = r.json() if r.status_code == 200 else {}
+            for item in data.get("results") or []:
+                media = (item.get("media_formats") or {})
+                gif = (media.get("gif") or media.get("tinygif") or {}).get("url")
+                preview = (media.get("tinygif") or media.get("gif") or {}).get("url") or gif
+                if gif:
+                    results.append({"url": gif, "preview": preview or gif, "id": str(item.get("id") or "")})
+        elif giphy_key:
+            url = "https://api.giphy.com/v1/gifs/search"
+            params = {"q": query, "api_key": giphy_key, "limit": limit, "rating": "pg-13"}
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.get(url, params=params)
+                data = r.json() if r.status_code == 200 else {}
+            for item in data.get("data") or []:
+                images = item.get("images") or {}
+                gif = (images.get("fixed_height") or images.get("original") or {}).get("url")
+                preview = (images.get("fixed_height_small") or images.get("preview_gif") or {}).get("url") or gif
+                if gif:
+                    results.append({"url": gif, "preview": preview or gif, "id": str(item.get("id") or "")})
+    except Exception:
+        results = []
+
+    if not results:
+        # Offline / no-key fallback: emoji-as-sticker “GIFs” via Twemoji CDN (static PNG)
+        stickers = ["1f389", "1f525", "1f602", "2764-fe0f", "1f44d", "1f440", "1f3ac", "1f37f"]
+        for i, code in enumerate(stickers[:limit]):
+            u = f"https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/{code}.png"
+            results.append({"url": u, "preview": u, "id": f"sticker-{i}"})
+
+    return {
+        "ok": True,
+        "query": query,
+        "provider": "tenor" if tenor_key else ("giphy" if giphy_key else "stickers"),
+        "results": results,
+    }
 
 
 @router.get("/party", response_class=HTMLResponse)
@@ -564,55 +966,6 @@ async def party_upload(request: Request):
     return {"ok": True, "url": url, "bytes": len(data), "contentType": content_type, "kind": kind}
 
 
-@router.get("/party/gifs")
-async def party_gifs(q: str = "", limit: int = 24):
-    """GIF search: Tenor/Giphy if API key in env, else curated sticker URLs + paste hint."""
-    limit = max(1, min(40, int(limit or 24)))
-    query = (q or "party").strip()[:64] or "party"
-    giphy_key = os.environ.get("GIPHY_API_KEY") or os.environ.get("GIPHY_KEY") or ""
-    tenor_key = os.environ.get("TENOR_API_KEY") or os.environ.get("TENOR_KEY") or ""
-    results: list[dict[str, str]] = []
-
-    try:
-        import httpx
-
-        if tenor_key:
-            url = "https://tenor.googleapis.com/v2/search"
-            params = {"q": query, "key": tenor_key, "limit": limit, "media_filter": "gif,tinygif"}
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                r = await client.get(url, params=params)
-                data = r.json() if r.status_code == 200 else {}
-            for item in data.get("results") or []:
-                media = (item.get("media_formats") or {})
-                gif = (media.get("gif") or media.get("tinygif") or {}).get("url")
-                preview = (media.get("tinygif") or media.get("gif") or {}).get("url") or gif
-                if gif:
-                    results.append({"url": gif, "preview": preview or gif, "id": str(item.get("id") or "")})
-        elif giphy_key:
-            url = "https://api.giphy.com/v1/gifs/search"
-            params = {"q": query, "api_key": giphy_key, "limit": limit, "rating": "pg-13"}
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                r = await client.get(url, params=params)
-                data = r.json() if r.status_code == 200 else {}
-            for item in data.get("data") or []:
-                images = item.get("images") or {}
-                gif = (images.get("fixed_height") or images.get("original") or {}).get("url")
-                preview = (images.get("fixed_height_small") or images.get("preview_gif") or {}).get("url") or gif
-                if gif:
-                    results.append({"url": gif, "preview": preview or gif, "id": str(item.get("id") or "")})
-    except Exception:
-        results = []
-
-    if not results:
-        # Offline / no-key fallback: emoji-as-sticker “GIFs” via Twemoji CDN (static PNG)
-        stickers = ["1f389", "1f525", "1f602", "2764-fe0f", "1f44d", "1f440", "1f3ac", "1f37f"]
-        for i, code in enumerate(stickers[:limit]):
-            u = f"https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/{code}.png"
-            results.append({"url": u, "preview": u, "id": f"sticker-{i}"})
-
-    return {"ok": True, "query": query, "provider": "tenor" if tenor_key else ("giphy" if giphy_key else "stickers"), "results": results}
-
-
 REMOTE_HTML = """<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -684,7 +1037,8 @@ def _join_meta_payload(code: str, room: Room | None) -> dict[str, Any]:
         "code": code,
         "name": room.name or _default_room_name(content, room.room_number or 0, code),
         "title": str(content.get("title") or "")[:120],
-        "posterPath": content.get("posterPath"),
+        "posterPath": _content_poster_path(content),
+        "logoPath": _content_logo_path(content),
         "locked": bool(room.password_hash),
         "memberCount": _member_count(room),
         "channelId": content.get("channelId") or content.get("channel_id"),

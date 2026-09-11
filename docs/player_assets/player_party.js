@@ -57,6 +57,7 @@
   let roomCode = "";
   let roomName = "";
   let roomPublic = false;
+  let roomLocked = false;
   let roomNumber = 0;
   let memberId = "";
   let hostKey = "";
@@ -100,9 +101,43 @@
   let fabLongPressTimer = null;
   let fabIgnoreClick = false;
   let fabLastTapAt = 0;
+  let lanBeaconTimer = null;
+
+  function stopLanBeacon() {
+    if (lanBeaconTimer) {
+      clearInterval(lanBeaconTimer);
+      lanBeaconTimer = null;
+    }
+  }
+
+  function startLanBeacon() {
+    stopLanBeacon();
+    const tick = () => {
+      try {
+        if (!isHost || !roomCode || !hostKey) {
+          stopLanBeacon();
+          return;
+        }
+        if (window.SDPartyInvite && SDPartyInvite.ensureHostBeacon) SDPartyInvite.ensureHostBeacon();
+      } catch (e) {}
+    };
+    tick();
+    lanBeaconTimer = setInterval(tick, 25000);
+  }
 
   function partyName() {
-    return (window.SDFeatures && SDFeatures.partyName && SDFeatures.partyName()) || "Guest";
+    if (window.SDFeatures && SDFeatures.partyName) return SDFeatures.partyName();
+    try {
+      let n = (localStorage.getItem("sd_party_name") || "").trim();
+      if (n && n.toLowerCase() !== "guest") return n;
+      let id = localStorage.getItem(LS_CLIENT) || clientId();
+      const suf = String(id).replace(/[^a-zA-Z0-9]/g, "").slice(-4).toUpperCase() || "USER";
+      n = "Guest-" + suf;
+      localStorage.setItem("sd_party_name", n);
+      return n;
+    } catch (e) {
+      return "Guest";
+    }
   }
 
   function clientId() {
@@ -391,7 +426,8 @@
     if (kind === "gif") body = "GIF";
     else if (kind === "voice") body = "🎤 voice note";
     else body = escapeHtml(String(m.text || "").slice(0, 140));
-    bubble.innerHTML = '<span class="party-rising-name">' + who + "</span> " + body;
+    bubble.innerHTML =
+      '<span class="party-rising-name">' + who + '</span><span class="party-msg-sep" aria-hidden="true"> · </span>' + body;
     host.appendChild(bubble);
     while (host.children.length > RISING_MAX) host.removeChild(host.firstChild);
     scheduleLayoutPartyChrome();
@@ -933,6 +969,51 @@
     return typeof channelId !== "undefined" && channelId ? "Channel " + channelId : "Live TV";
   }
 
+  function usableArtUrl(raw) {
+    if (raw == null) return null;
+    const s = String(raw).trim();
+    if (!s || s === "null" || s === "undefined" || s === "none") return null;
+    return s;
+  }
+
+  function liveChannelLogo() {
+    try {
+      if (typeof headerMeta !== "undefined" && headerMeta && headerMeta.logo) {
+        return usableArtUrl(headerMeta.logo);
+      }
+      const id =
+        typeof channelId !== "undefined" && channelId
+          ? String(channelId)
+          : headerMeta && (headerMeta.channel_id || headerMeta.id)
+            ? String(headerMeta.channel_id || headerMeta.id)
+            : "";
+      if (id && typeof channelMap !== "undefined" && channelMap[id] && channelMap[id].logo) {
+        return usableArtUrl(channelMap[id].logo);
+      }
+      if (typeof channelLogoUrl === "function") {
+        return usableArtUrl(channelLogoUrl(headerMeta || { id: id, channel_id: id }));
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function liveProgrammeArt() {
+    try {
+      if (typeof headerMeta !== "undefined" && headerMeta) {
+        const epg =
+          typeof getCachedEntry === "function" && typeof epgCache !== "undefined"
+            ? getCachedEntry(epgCache, String(headerMeta.channel_id || channelId || ""))
+            : null;
+        const now = epg && epg.now;
+        if (now) {
+          const art = usableArtUrl(now.poster_url || now.image || now.icon);
+          if (art) return art;
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
   function saveLastPlace(partial) {
     if (typeof window.SDSaveLastPlace === "function") {
       try {
@@ -950,10 +1031,14 @@
   function rememberPartyRecent(code, name, title) {
     try {
       const recent = JSON.parse(localStorage.getItem("sd_party_recent") || "[]");
+      const payload = typeof contentPayload === "function" ? contentPayload() : {};
       const entry = {
         code: String(code || "").toUpperCase(),
         name: name || "",
         title: title || "",
+        posterPath: (payload && payload.posterPath) || null,
+        logoPath: (payload && payload.logoPath) || null,
+        channelId: (payload && payload.channelId) || null,
         ts: Date.now(),
       };
       const next = [entry].concat(recent.filter((x) => x && x.code !== entry.code)).slice(0, 12);
@@ -1097,11 +1182,50 @@
       '<div class="code" id="sdPartyCode"></div>' +
       '<div class="qr-wrap" id="sdPartyQr"></div>' +
       '<input id="sdPartyJoinUrl" readonly style="width:100%;box-sizing:border-box"/>' +
-      '<div class="row"><button type="button" class="primary" id="sdPartyCopy">Copy invite</button>' +
+      '<div class="row"><button type="button" class="primary" id="sdPartyInvite">Invite</button>' +
+      '<button type="button" id="sdPartyCopy">Copy link</button>' +
       '<button type="button" id="sdPartyForceSync">Force sync</button>' +
       '<button type="button" id="sdPartyLeave">Leave</button></div></div>' +
       '<div class="row"><button type="button" id="sdPartyClose">Close</button></div>'
     );
+  }
+
+  function getInviteState() {
+    const path = (typeof contentPayload === "function" && contentPayload().channelId
+      ? "/tv/" + contentPayload().channelId
+      : null) || location.pathname + location.search || "/tv/";
+    let watchPath = path;
+    try {
+      const p = contentPayload();
+      if (p && p.mediaType === "live" && p.channelId) watchPath = "/tv/" + p.channelId;
+      else if (p && (p.tmdbId || p.tmdb_id)) {
+        const mt = (p.mediaType || "movie") === "tv" ? "tv" : "movie";
+        watchPath = "/vod/" + mt + "/" + (p.tmdbId || p.tmdb_id);
+      }
+    } catch (e) {}
+    return {
+      code: roomCode || "",
+      name: roomName || "",
+      title: contentTitle(),
+      public: !!roomPublic,
+      locked: !!roomLocked,
+      hostKey: hostKey || loadHostKey(roomCode) || "",
+      isHost: !!isHost,
+      watchPath: watchPath,
+    };
+  }
+
+  function openInvite(opts) {
+    opts = opts || {};
+    if (window.SDPartyInvite && typeof SDPartyInvite.open === "function" && (roomCode || opts.code)) {
+      SDPartyInvite.open(
+        Object.assign({}, opts, {
+          state: Object.assign(getInviteState(), opts.state || {}, opts.code ? { code: opts.code } : {}),
+        })
+      );
+      return;
+    }
+    openShare(opts);
   }
 
   function ensureUi() {
@@ -1246,12 +1370,18 @@
         if (code) joinParty(code);
       });
     }
+    const inviteBtn = document.getElementById("sdPartyInvite");
+    if (inviteBtn && !inviteBtn.dataset.wired) {
+      inviteBtn.dataset.wired = "1";
+      inviteBtn.addEventListener("click", () => openInvite());
+    }
     const copyBtn = document.getElementById("sdPartyCopy");
     if (copyBtn && !copyBtn.dataset.wired) {
       copyBtn.dataset.wired = "1";
       copyBtn.addEventListener("click", () => {
         const inp = document.getElementById("sdPartyJoinUrl");
         if (inp && navigator.clipboard) navigator.clipboard.writeText(inp.value).catch(() => {});
+        else openInvite({ tab: "link" });
       });
     }
     const forceBtn = document.getElementById("sdPartyForceSync");
@@ -1598,6 +1728,10 @@
   function openShare(opts) {
     ensureUi();
     opts = opts || {};
+    if (roomCode && !opts.forceContent && !(opts.detail && (opts.detail.tmdb_id || opts.detail.tmdbId))) {
+      openInvite(opts);
+      return;
+    }
     const d = opts.detail || vodCatalogDetail || vodPickerCtx || {};
     let path = "";
     if (d.tmdb_id || d.tmdbId) {
@@ -1657,7 +1791,28 @@
   function openPanel() {
     ensureUi();
     const nameEl = document.getElementById("sdPartyRoomName");
-    if (nameEl && !roomCode) nameEl.value = provisionalRoomName();
+    if (nameEl && !roomCode) {
+      let prefName = "";
+      try {
+        prefName = sessionStorage.getItem("sd_party_create_name") || "";
+      } catch (e) {}
+      nameEl.value = prefName || provisionalRoomName();
+    }
+    try {
+      const pub = document.getElementById("sdPartyPublic");
+      if (pub && !roomCode) {
+        const v = sessionStorage.getItem("sd_party_create_public");
+        if (v === "0" || v === "1") pub.checked = v === "1";
+        else {
+          const ls = localStorage.getItem("sd_party_create_public");
+          if (ls === "0" || ls === "1") pub.checked = ls === "1";
+        }
+      }
+      const pw = document.getElementById("sdPartyPassword");
+      if (pw && !roomCode) {
+        pw.value = sessionStorage.getItem("sd_party_create_password") || "";
+      }
+    } catch (e) {}
     document.getElementById("sdPartyBackdrop").classList.add("open");
     document.getElementById("sdPartyModal").classList.add("open");
     if (roomCode) showPartyCreated(roomCode, { name: roomName });
@@ -1673,11 +1828,17 @@
     const onVod = isWatchingVod();
     if (!onVod && !extra.tmdbId && !extra.tmdb_id) {
       const ch = typeof channelId !== "undefined" ? channelId : null;
+      const logo = usableArtUrl(extra.logoPath || extra.logo) || liveChannelLogo();
+      const poster =
+        usableArtUrl(extra.posterPath || extra.poster_url || extra.image) ||
+        liveProgrammeArt() ||
+        logo;
       return {
         tmdbId: null,
         mediaType: "live",
         title: extra.title || liveProgrammeTitle(),
-        posterPath: null,
+        posterPath: poster,
+        logoPath: logo,
         season: null,
         episode: null,
         channelId: ch,
@@ -1686,11 +1847,16 @@
     }
     const ctx = Object.assign({}, vodPickerCtx || {}, extra);
     const detail = typeof vodCatalogDetail !== "undefined" ? vodCatalogDetail : null;
+    const poster =
+      usableArtUrl(
+        (detail && (detail.poster_url || detail.poster_path)) || ctx.posterPath || ctx.poster_url
+      ) || null;
     return {
       tmdbId: ctx.tmdbId || ctx.tmdb_id || (detail && detail.tmdb_id) || null,
       mediaType: ctx.mediaType || ctx.type || (detail && detail.type) || "movie",
       title: ctx.title || (detail && detail.title) || "",
-      posterPath: (detail && (detail.poster_url || detail.poster_path)) || ctx.posterPath || null,
+      posterPath: poster,
+      logoPath: usableArtUrl(ctx.logoPath || ctx.logo) || null,
       season: ctx.season || null,
       episode: ctx.episode || null,
       channelId: null,
@@ -1801,6 +1967,7 @@
     if (room.code) roomCode = room.code;
     if (room.name) roomName = room.name;
     if (typeof room.public === "boolean") roomPublic = room.public;
+    if (typeof room.locked === "boolean") roomLocked = room.locked;
     if (room.roomNumber != null) roomNumber = room.roomNumber;
     if (room.features && typeof room.features === "object") {
       roomFeatures = Object.assign({}, DEFAULT_FEATURES, room.features);
@@ -2138,6 +2305,10 @@
     if (inp) inp.value = join;
     const qr = document.getElementById("sdPartyQr");
     if (qr) qr.innerHTML = qrImg(join);
+    try {
+      if (window.SDPartyInvite && SDPartyInvite.ensureHostBeacon) SDPartyInvite.ensureHostBeacon();
+    } catch (e) {}
+    if (isHost) startLanBeacon();
   }
 
   async function joinParty(code, opts) {
@@ -2389,11 +2560,12 @@
           season: content.season != null && content.season !== "" ? String(content.season) : "",
           episode: content.episode != null && content.episode !== "" ? String(content.episode) : "",
           title: title,
+          imdbId: (content.imdbId || content.imdb_id || "") + "",
         };
         if (typeof startVodPlayback === "function") {
           await startVodPlayback(ctx, "vod_picker");
         } else {
-          const path =
+          let path =
             ctx.mediaType === "tv"
               ? "/vod/tv/" +
                 ctx.tmdbId +
@@ -2403,6 +2575,9 @@
                     (ctx.episode ? "&episode=" + encodeURIComponent(ctx.episode) : "")
                   : "")
               : "/vod/movie/" + ctx.tmdbId;
+          if (ctx.imdbId && ctx.imdbId.indexOf("tt") === 0) {
+            path += (path.indexOf("?") >= 0 ? "&" : "?") + "imdb=" + encodeURIComponent(ctx.imdbId);
+          }
           const join = path + (path.includes("?") ? "&" : "?") + "party=" + encodeURIComponent(roomCode);
           location.href = join;
         }
@@ -2461,9 +2636,15 @@
     el.innerHTML = lastMembers
       .filter((m) => m.kind !== "remote")
       .map((m) => {
-        const buff = m.buffering ? " …" : "";
-        const host = m.role === "host" ? " ★" : "";
-        const adminMark = roomAdmins.indexOf(m.id) >= 0 && m.role !== "host" ? " ⚒" : "";
+        const buff = m.buffering ? ' <span class="party-muted">…</span>' : "";
+        const host =
+          m.role === "host"
+            ? ' <span class="party-role" title="Host">host</span>'
+            : "";
+        const adminMark =
+          roomAdmins.indexOf(m.id) >= 0 && m.role !== "host"
+            ? ' <span class="party-role" title="Admin">admin</span>'
+            : "";
         const kick =
           isHost && m.id !== memberId
             ? ' <button type="button" class="party-kick" data-kick="' +
@@ -2482,7 +2663,11 @@
               '" data-grant="1" title="Make admin">+</button>';
         }
         return (
-          '<span class="party-member">' +
+          '<span class="party-member' +
+          (m.role === "host" ? " is-host" : "") +
+          '" title="' +
+          escapeHtml(m.displayName || "?") +
+          '">' +
           escapeHtml(m.displayName || "?") +
           host +
           adminMark +
@@ -2492,7 +2677,7 @@
           "</span>"
         );
       })
-      .join("");
+      .join('<span class="party-member-sep" aria-hidden="true"> · </span>');
   }
   function appendChat(m, opts) {
     opts = opts || {};
@@ -2501,7 +2686,10 @@
     const div = document.createElement("div");
     const kind = String(m.msgType || m.kind || "text").toLowerCase();
     div.className = "m" + (kind === "gif" ? " party-msg-gif" : kind === "voice" ? " party-msg-voice" : "");
-    const name = '<span class="n">' + escapeHtml(m.displayName || "?") + "</span> ";
+    const name =
+      '<span class="n">' +
+      escapeHtml(m.displayName || "?") +
+      '</span><span class="party-msg-sep" aria-hidden="true"> · </span>';
     if (kind === "gif" && m.url) {
       div.innerHTML =
         name +
@@ -2855,6 +3043,16 @@
     opts = opts || {};
     clearChatIdle();
     stopPingLoop();
+    stopLanBeacon();
+    try {
+      if (isHost && roomCode && hostKey && window.SDPartyInvite) {
+        authFetch("/party/presence/lan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: roomCode, hostKey: hostKey, visible: false }),
+        }).catch(() => {});
+      }
+    } catch (e) {}
     try {
       if (ws) ws.send(JSON.stringify({ type: "leave" }));
       if (ws) ws.close();
@@ -2863,6 +3061,7 @@
     roomCode = "";
     roomName = "";
     roomPublic = false;
+    roomLocked = false;
     roomNumber = 0;
     isHost = false;
     isAdmin = false;
@@ -3018,381 +3217,38 @@
     }
   } catch (e) {}
 
-  /* —— Party home slide-up (same chrome as VOD catalog) —— */
-  const LS_PARTY_NAME = "sd_party_name";
-  const LS_PARTY_RECENT = "sd_party_recent";
-  const LS_LAST_PLACE = "sd_last_place";
-  const LS_LAST_TV = "sd_last_tv_channel";
-  let partyHomeOpen = false;
-  let partyHomePollTimer = null;
-  let partyHomeWired = false;
-
-  function partyHomeEsc(s) {
-    return String(s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  function partyHomeEl(id) {
-    return document.getElementById(id);
-  }
-
-  function partyHomeWatchJoinUrl(code, name, watchPath) {
-    let path = watchPath || "/tv/";
-    return (
-      path +
-      (path.includes("?") ? "&" : "?") +
-      "party=" +
-      encodeURIComponent(code) +
-      "&name=" +
-      encodeURIComponent(name || "Guest")
-    );
-  }
-
-  function partyHomeStashPending(code, name) {
+  /* —— Party home: delegated to player_party_home.js (SDPartyHome) —— */
+  function openPartyHome(opts) {
+    if (window.SDPartyHome && typeof SDPartyHome.open === "function") {
+      return SDPartyHome.open(opts || {});
+    }
+    // Fallback until home module loads: push /party so home boot can open.
     try {
-      sessionStorage.setItem("sd_party_pending", code);
-      sessionStorage.setItem("sd_party_name_pending", name || "Guest");
-      localStorage.setItem(LS_PARTY_NAME, name || "Guest");
+      const path = location.pathname.replace(/\/$/, "") || "/";
+      if (path !== "/party" && path !== "/party/home") {
+        history.pushState({ sdPartyHome: 1 }, "", "/party");
+      }
     } catch (e) {}
-  }
-
-  function partyHomeTvUrl() {
-    let ch = "";
-    try {
-      ch = localStorage.getItem(LS_LAST_TV) || "";
-    } catch (e) {}
-    return ch ? "/tv/" + encodeURIComponent(ch) : "/tv/";
-  }
-
-  function partyHomeRoomCard(room, opts) {
-    opts = opts || {};
-    const title = room.name || room.title || room.code || "Party";
-    const meta = [];
-    if (room.memberCount != null) meta.push(room.memberCount + " watching");
-    if (room.locked) meta.push("Locked");
-    if (room.title && room.title !== title) meta.push(room.title);
-    if (room.channelId) meta.push("Ch " + room.channelId);
-    const nameEl = partyHomeEl("partyHomeJoinName");
-    const guest = (nameEl && nameEl.value) || "Guest";
-    const poster = room.posterPath
-      ? '<img class="party-home-poster" src="' + partyHomeEsc(room.posterPath) + '" alt=""/>'
-      : '<div class="party-home-poster ph">LIVE</div>';
-    const href =
-      opts.href || partyHomeWatchJoinUrl(room.code, guest, room.watchPath);
-    return (
-      '<div class="party-home-card">' +
-      poster +
-      '<div class="body"><strong>' +
-      partyHomeEsc(title) +
-      "</strong><span>" +
-      partyHomeEsc(meta.join(" · ")) +
-      '</span></div><a class="party-home-btn" href="' +
-      partyHomeEsc(href) +
-      '">Join</a></div>'
-    );
-  }
-
-  async function partyHomeLoadPublic() {
-    const el = partyHomeEl("partyHomePublicList");
-    if (!el) return;
-    try {
-      const r = await authFetch("/party/public");
-      if (r.status === 401) {
-        el.innerHTML = '<p class="party-home-empty">Sign in with PIN to see public parties.</p>';
-        return;
-      }
-      const data = await r.json();
-      const rooms = (data && data.rooms) || [];
-      if (!rooms.length) {
-        el.innerHTML = '<p class="party-home-empty">No public parties right now.</p>';
-        return;
-      }
-      el.innerHTML = rooms.map((room) => partyHomeRoomCard(room)).join("");
-    } catch (e) {
-      el.innerHTML = '<p class="party-home-empty">Could not load public parties.</p>';
-    }
-  }
-
-  async function partyHomeLoadPresence() {
-    const summary = partyHomeEl("partyHomeOnlineSummary");
-    const list = partyHomeEl("partyHomeOnlineList");
-    if (!summary) return;
-    try {
-      const r = await authFetch("/party/presence");
-      if (r.status === 401) {
-        summary.textContent = "Sign in to see who’s online";
-        return;
-      }
-      const data = await r.json();
-      const n = (data && data.inParties) || 0;
-      const priv = (data && data.privateRooms) || 0;
-      summary.textContent =
-        n +
-        " in parties now" +
-        (priv ? " · " + priv + " private room" + (priv === 1 ? "" : "s") : "");
-      if (!list) return;
-      const people = (data && data.online) || [];
-      if (!people.length) {
-        list.innerHTML = '<p class="party-home-empty">Nobody in a party right now.</p>';
-        return;
-      }
-      const nameEl = partyHomeEl("partyHomeJoinName");
-      const guest = (nameEl && nameEl.value) || "Guest";
-      list.innerHTML = people
-        .slice(0, 24)
-        .map((p) => {
-          const where = p.roomName || (p.public ? "Public party" : "In a party");
-          const title = p.title ? " · " + p.title : "";
-          return (
-            '<div class="party-home-card"><div class="body"><strong>' +
-            partyHomeEsc(p.displayName || "Guest") +
-            "</strong><span>" +
-            partyHomeEsc(where + title) +
-            "</span></div>" +
-            (p.watchPath && p.code
-              ? '<a class="party-home-btn secondary" href="' +
-                partyHomeEsc(partyHomeWatchJoinUrl(p.code, guest, p.watchPath)) +
-                '">Join</a>'
-              : "") +
-            "</div>"
-          );
-        })
-        .join("");
-    } catch (e) {
-      summary.textContent = "Presence unavailable";
-    }
-  }
-
-  function partyHomeLoadRecent() {
-    const el = partyHomeEl("partyHomeRecentList");
-    if (!el) return;
-    let recent = [];
-    try {
-      recent = JSON.parse(localStorage.getItem(LS_PARTY_RECENT) || "[]");
-    } catch (e) {}
-    if (!Array.isArray(recent) || !recent.length) {
-      el.innerHTML = '<p class="party-home-empty">No recent parties on this device.</p>';
-      return;
-    }
-    el.innerHTML = recent
-      .slice(0, 8)
-      .map((room) => {
-        const href = "/party/join/" + encodeURIComponent(room.code || "");
-        return partyHomeRoomCard(
-          {
-            code: room.code,
-            name: room.name,
-            title: room.title,
-            watchPath: href,
-            memberCount: null,
-          },
-          { href: href }
-        );
-      })
-      .join("");
-  }
-
-  function partyHomeLoadSuggested() {
-    const el = partyHomeEl("partyHomeSuggestList");
-    const startLast = partyHomeEl("partyHomeStartLast");
-    if (!el) return;
-    let place = null;
-    try {
-      place = JSON.parse(localStorage.getItem(LS_LAST_PLACE) || "null");
-    } catch (e) {}
-    const cards = [];
-    if (place && place.channelId) {
-      const href = "/tv/" + encodeURIComponent(place.channelId) + "?party_create=1";
-      cards.push(
-        '<div class="party-home-card"><div class="party-home-poster ph">TV</div><div class="body"><strong>Start party on Ch ' +
-          partyHomeEsc(place.channelId) +
-          "</strong><span>" +
-          partyHomeEsc(place.title || "Last live channel") +
-          '</span></div><a class="party-home-btn" href="' +
-          partyHomeEsc(href) +
-          '">Start</a></div>'
-      );
-      if (startLast) {
-        startLast.hidden = false;
-        startLast.dataset.href = href;
-        startLast.textContent = "Start on Ch " + place.channelId;
-      }
-    }
-    if (place && place.tmdbId) {
-      const mt =
-        place.mediaType === "tv" || place.mediaType === "series" ? "tv" : "movie";
-      let path = "/vod/" + mt + "/" + encodeURIComponent(place.tmdbId);
-      if (mt === "tv" && place.season) {
-        path += "?season=" + encodeURIComponent(place.season);
-        if (place.episode) path += "&episode=" + encodeURIComponent(place.episode);
-        path += "&party_create=1";
-      } else path += (path.includes("?") ? "&" : "?") + "party_create=1";
-      cards.push(
-        '<div class="party-home-card"><div class="party-home-poster ph">VOD</div><div class="body"><strong>Continue ' +
-          partyHomeEsc(place.title || "title") +
-          '</strong><span>Start a party on this title</span></div><a class="party-home-btn" href="' +
-          partyHomeEsc(path) +
-          '">Start</a></div>'
-      );
-    }
-    if (place && place.partyCode) {
-      cards.push(
-        '<div class="party-home-card"><div class="party-home-poster ph">↻</div><div class="body"><strong>Resume party ' +
-          partyHomeEsc(place.partyCode) +
-          "</strong><span>" +
-          partyHomeEsc(place.title || place.path || "") +
-          '</span></div><a class="party-home-btn secondary" href="/party/join/' +
-          partyHomeEsc(place.partyCode) +
-          '">Rejoin</a></div>'
-      );
-    }
-    el.innerHTML = cards.length
-      ? cards.join("")
-      : '<p class="party-home-empty">Watch something, then start a party from here.</p>';
-  }
-
-  function partyHomeRefresh() {
-    partyHomeLoadPublic();
-    partyHomeLoadPresence();
-    partyHomeLoadRecent();
-    partyHomeLoadSuggested();
+    setTimeout(() => {
+      try {
+        if (window.SDPartyHome && typeof SDPartyHome.open === "function") {
+          SDPartyHome.open(Object.assign({ replace: true }, opts || {}));
+        }
+      } catch (err) {}
+    }, 0);
   }
 
   function closePartyHome(silent) {
-    partyHomeOpen = false;
-    const sheet = partyHomeEl("partyHome");
-    const backdrop = partyHomeEl("partyHomeBackdrop");
-    if (sheet) sheet.classList.remove("open");
-    if (backdrop) backdrop.classList.remove("open");
-    if (partyHomePollTimer) {
-      clearInterval(partyHomePollTimer);
-      partyHomePollTimer = null;
-    }
-    if (!silent) {
-      const path = location.pathname.replace(/\/$/, "") || "/";
-      if (path === "/party" || path === "/party/home") {
-        history.replaceState(null, "", partyHomeTvUrl());
-      }
+    if (window.SDPartyHome && typeof SDPartyHome.close === "function") {
+      return SDPartyHome.close(silent);
     }
   }
 
-  function openPartyHome(opts) {
-    opts = opts || {};
-    try {
-      if (typeof window.SDCloseVodCatalogUI === "function") window.SDCloseVodCatalogUI();
-    } catch (e) {}
-    wirePartyHomeOnce();
-    partyHomeOpen = true;
-    const sheet = partyHomeEl("partyHome");
-    const backdrop = partyHomeEl("partyHomeBackdrop");
-    if (sheet) sheet.classList.add("open");
-    if (backdrop) backdrop.classList.add("open");
-    const nameInput = partyHomeEl("partyHomeJoinName");
-    if (nameInput && !nameInput.value) {
-      try {
-        nameInput.value = localStorage.getItem(LS_PARTY_NAME) || "";
-      } catch (e) {}
+  function partyHomeRoomCard(room, opts) {
+    if (window.SDPartyHome && typeof SDPartyHome.roomCard === "function") {
+      return SDPartyHome.roomCard(room, opts);
     }
-    partyHomeRefresh();
-    if (!partyHomePollTimer) {
-      partyHomePollTimer = setInterval(() => {
-        if (!partyHomeOpen) return;
-        partyHomeLoadPublic();
-        partyHomeLoadPresence();
-      }, 20000);
-    }
-    const path = location.pathname.replace(/\/$/, "") || "/";
-    if (path !== "/party" && path !== "/party/home") {
-      if (opts.replace) history.replaceState({ sdPartyHome: 1 }, "", "/party");
-      else history.pushState({ sdPartyHome: 1 }, "", "/party");
-    } else if (opts.replace) {
-      history.replaceState({ sdPartyHome: 1 }, "", "/party");
-    }
-  }
-
-  function wirePartyHomeOnce() {
-    if (partyHomeWired) return;
-    partyHomeWired = true;
-    const form = partyHomeEl("partyHomeJoinForm");
-    if (form) {
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const code = ((partyHomeEl("partyHomeJoinCode") || {}).value || "")
-          .trim()
-          .toUpperCase();
-        const name =
-          ((partyHomeEl("partyHomeJoinName") || {}).value || "Guest").trim() ||
-          "Guest";
-        const err = partyHomeEl("partyHomeJoinErr");
-        if (err) err.textContent = "";
-        if (!code || code.length < 4) {
-          if (err) err.textContent = "Enter a valid party code.";
-          return;
-        }
-        partyHomeStashPending(code, name);
-        let watch = "/tv/";
-        try {
-          const r = await authFetch(
-            "/party/join/" + encodeURIComponent(code) + "/meta"
-          );
-          const data = await r.json();
-          if (data && data.ok && data.watchPath) watch = data.watchPath;
-          else if (data && data.error === "not_found") {
-            if (err) err.textContent = "Room not found or expired.";
-            return;
-          }
-        } catch (err2) {}
-        location.href = partyHomeWatchJoinUrl(code, name, watch);
-      });
-    }
-    const closeBtn = partyHomeEl("closePartyHome");
-    if (closeBtn) closeBtn.addEventListener("click", () => closePartyHome());
-    const backdrop = partyHomeEl("partyHomeBackdrop");
-    if (backdrop) backdrop.addEventListener("click", () => closePartyHome());
-    const startLive = partyHomeEl("partyHomeStartLive");
-    if (startLive) {
-      startLive.addEventListener("click", () => {
-        closePartyHome(true);
-        history.replaceState(null, "", partyHomeTvUrl().split("?")[0] + "?party_create=1");
-        try {
-          openPanel();
-        } catch (e) {}
-        setTimeout(() => {
-          try {
-            openPanel();
-          } catch (e) {}
-        }, 200);
-      });
-    }
-    const startVod = partyHomeEl("partyHomeStartVod");
-    if (startVod) {
-      startVod.addEventListener("click", () => {
-        location.href = "/vod?party_create=1";
-      });
-    }
-    const startLast = partyHomeEl("partyHomeStartLast");
-    if (startLast) {
-      startLast.addEventListener("click", () => {
-        const href = startLast.dataset.href || "/tv/?party_create=1";
-        location.href = href;
-      });
-    }
-    const homeBtn = partyHomeEl("partyHomeBtn");
-    if (homeBtn) {
-      homeBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (partyHomeOpen) closePartyHome();
-        else openPartyHome();
-      });
-    }
-    window.addEventListener("popstate", () => {
-      const path = location.pathname.replace(/\/$/, "") || "/";
-      if (path === "/party" || path === "/party/home") openPartyHome({ replace: true });
-      else if (partyHomeOpen) closePartyHome(true);
-    });
+    return "";
   }
 
   function addHeaderShare() {
@@ -3416,7 +3272,7 @@
     menu.hidden = true;
     menu.setAttribute("role", "menu");
     menu.innerHTML =
-      '<button type="button" role="menuitem" data-live-action="share">Share / remote</button>' +
+      '<button type="button" role="menuitem" data-live-action="share">Invite / share</button>' +
       '<button type="button" role="menuitem" data-live-action="guide">Show guide</button>' +
       '<button type="button" role="menuitem" data-live-action="settings">Settings</button>' +
       '<button type="button" role="menuitem" data-live-action="party">Watch Party</button>' +
@@ -3425,12 +3281,44 @@
     function closeMenu() {
       menu.hidden = true;
       b.setAttribute("aria-expanded", "false");
+      if (menu.parentElement !== wrap) wrap.appendChild(menu);
+    }
+    function positionLiveMoreMenu() {
+      if (typeof window.SDPositionGuideMoreMenu === "function") {
+        window.SDPositionGuideMoreMenu(menu, b);
+        return;
+      }
+      if (menu.parentElement !== document.body) document.body.appendChild(menu);
+      const gap = 6;
+      const pad = 8;
+      const br = b.getBoundingClientRect();
+      const vw = window.innerWidth || 0;
+      const vh = window.innerHeight || 0;
+      const spaceBelow = Math.max(0, vh - br.bottom - gap - pad);
+      const spaceAbove = Math.max(0, br.top - gap - pad);
+      const preferBelow = spaceBelow >= spaceAbove;
+      const avail = Math.max(120, preferBelow ? spaceBelow : spaceAbove);
+      menu.style.position = "fixed";
+      menu.style.zIndex = "120";
+      menu.style.right = "auto";
+      menu.style.bottom = "auto";
+      menu.style.maxHeight = Math.min(520, avail) + "px";
+      const mw = Math.max(menu.offsetWidth || 188, 188);
+      const mh = Math.min(menu.scrollHeight || 220, Math.min(520, avail));
+      let left = Math.max(pad, Math.min(br.right - mw, vw - mw - pad));
+      let top = preferBelow ? br.bottom + gap : br.top - gap - mh;
+      if (top < pad) top = pad;
+      if (top + mh > vh - pad) top = Math.max(pad, vh - mh - pad);
+      menu.style.left = Math.round(left) + "px";
+      menu.style.top = Math.round(top) + "px";
+      menu.style.maxHeight = Math.round(mh) + "px";
     }
     b.addEventListener("click", (e) => {
       e.stopPropagation();
       const open = menu.hidden;
       menu.hidden = !open;
       b.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) positionLiveMoreMenu();
     });
     menu.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-live-action]");
@@ -3439,7 +3327,10 @@
       e.stopPropagation();
       const action = btn.getAttribute("data-live-action");
       closeMenu();
-      if (action === "share") openShare();
+      if (action === "share") {
+        if (roomCode) openInvite();
+        else openShare({ forceContent: true });
+      }
       else if (action === "guide") {
         try {
           const show = document.getElementById("showGuideBtn");
@@ -3462,6 +3353,9 @@
     document.addEventListener("click", (e) => {
       if (!menu.hidden && !e.target.closest("#liveShareBtn, #liveMoreMenu")) closeMenu();
     });
+    window.addEventListener("resize", () => {
+      if (!menu.hidden) positionLiveMoreMenu();
+    });
     wrap.appendChild(b);
     wrap.appendChild(menu);
     chrome.appendChild(wrap);
@@ -3470,21 +3364,15 @@
   ensureUi();
   addHeaderShare();
   wireLayoutPartyChrome();
-  wirePartyHomeOnce();
   try {
     window.addEventListener("resize", syncPartyLayout);
     window.addEventListener("orientationchange", () => setTimeout(syncPartyLayout, 80));
   } catch (e) {}
   scheduleLayoutPartyChrome();
-  try {
-    const bootPath = location.pathname.replace(/\/$/, "") || "/";
-    if (bootPath === "/party" || bootPath === "/party/home") {
-      openPartyHome({ replace: true });
-    }
-  } catch (e) {}
 
   window.SDParty = {
     openShare,
+    openInvite,
     openPanel,
     openHome: openPartyHome,
     closeHome: closePartyHome,
@@ -3498,6 +3386,9 @@
     applyContent,
     ensureUi,
     layoutPartyChrome,
+    getInviteState,
+    _authFetch: typeof authFetch === "function" ? authFetch : null,
+    _partyHomeRoomCard: partyHomeRoomCard,
     _toast: toast,
     _onAvHangup: () => {
       chatMode = "text";

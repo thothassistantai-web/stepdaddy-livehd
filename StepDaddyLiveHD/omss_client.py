@@ -16,7 +16,7 @@ import httpx
 from StepDaddyLiveHD.vod_resolver import VodResolveResult, _norm_type
 
 CINEPRO_OMSS_URL = os.environ.get("CINEPRO_OMSS_URL", "").strip().rstrip("/")
-OMSS_TIMEOUT = float(os.environ.get("CINEPRO_OMSS_TIMEOUT", "25"))
+OMSS_TIMEOUT = float(os.environ.get("CINEPRO_OMSS_TIMEOUT", "35"))
 
 
 def enabled() -> bool:

@@ -177,6 +177,17 @@ def _auto_map_path() -> Path:
     return CACHE_DIR / "auto_channel_map.json"
 
 
+def _sanitize_cached_programme(row: dict[str, Any]) -> dict[str, Any]:
+    """Re-derive S/E with current parser (drops stale 9/11→S9E11 style false hits)."""
+    if not isinstance(row, dict):
+        return row
+    cleaned = dict(row)
+    cleaned.pop("season", None)
+    cleaned.pop("episode", None)
+    cleaned.pop("episode_label", None)
+    return enrich_programme_row(cleaned)
+
+
 def _read_prog_cache(epg_cid: str) -> list[dict[str, Any]] | None:
     path = _cache_path(epg_cid)
     if not path.is_file():
@@ -186,7 +197,9 @@ def _read_prog_cache(epg_cid: str) -> list[dict[str, Any]] | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         rows = payload.get("programmes") if isinstance(payload, dict) else None
-        return rows if isinstance(rows, list) else None
+        if not isinstance(rows, list):
+            return None
+        return [_sanitize_cached_programme(r) for r in rows if isinstance(r, dict)]
     except Exception:
         return None
 

@@ -50,6 +50,7 @@ PROTECTED_PREFIXES = (
     "/party",
     "/remote",
     "/vod",
+    "/music",
     "/play",
     "/stream/",
     "/live/",
@@ -331,6 +332,9 @@ def _path_is_protected(path: str) -> bool:
     # Public party invite landing (PIN still required for /tv).
     if path.startswith("/party/join/"):
         return False
+    # Public Music share deep links (OG crawlers + guest open; stream APIs separate).
+    if path.startswith("/music/t/") or path.startswith("/music/r/"):
+        return False
     # WebSocket upgrades must bypass BaseHTTPMiddleware (it breaks them).
     # Session checks happen inside the WS handlers.
     if path.startswith("/ws/") or path == "/ws":
@@ -356,6 +360,8 @@ def _wants_html(request: Request) -> bool:
         path.startswith("/play")
         or path.startswith("/tv")
         or path.startswith("/vod")
+        or path.startswith("/music")
+        or path.startswith("/legacy")
         or path == "/party"
         or path.startswith("/party/home")
     ):

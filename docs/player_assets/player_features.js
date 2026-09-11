@@ -9,6 +9,28 @@
   const LS_AUTO_PIP_BG = "sd_auto_pip_bg";
   const LS_PREFETCH = "sd_resolve_prefetch";
   const LS_PARTY_NAME = "sd_party_name";
+  const LS_PARTY_CLIENT = "sd_party_client_id";
+
+  function ensurePartyDisplayName() {
+    let n = (lsGet(LS_PARTY_NAME, "") || "").trim();
+    if (n && n.toLowerCase() !== "guest") return n;
+    let id = "";
+    try {
+      id = localStorage.getItem(LS_PARTY_CLIENT) || "";
+      if (!id) {
+        id =
+          (crypto.randomUUID && crypto.randomUUID()) ||
+          "c" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        localStorage.setItem(LS_PARTY_CLIENT, id);
+      }
+    } catch (e) {
+      id = "x" + Date.now().toString(36);
+    }
+    const suf = String(id).replace(/[^a-zA-Z0-9]/g, "").slice(-4).toUpperCase() || "USER";
+    n = "Guest-" + suf;
+    lsSet(LS_PARTY_NAME, n);
+    return n;
+  }
 
   let progressTimer = null;
   let lastProgressSent = 0;
@@ -22,7 +44,9 @@
   let subRaf = null;
 
   const PARTY_IGNORE_SEL =
-    ".party-drawer, .party-fab, .party-toast, .party-jitsi-stage, .party-av-overlay, #partyAvOverlay, #partyFab, .party-live-overlay, .party-live-badge, .sd-modal, .sd-modal-backdrop, .pc-settings, .pc-settings-backdrop";
+    /* Do NOT include .party-live-overlay — that class is stamped on #trailerLayer/#videoArea
+       as a layout mode and would make partyChromeIgnore() swallow every VOD chrome tap. */
+    ".party-drawer, .party-fab, .party-toast, .party-jitsi-stage, .party-av-overlay, #partyAvOverlay, #partyFab, .party-live-dock, .party-live-badge, .party-rising-bubbles, .sd-modal, .sd-modal-backdrop, .pc-settings, .pc-settings-backdrop";
 
   function partyChromeIgnore(target) {
     return !!(target && target.closest && target.closest(PARTY_IGNORE_SEL));
@@ -501,7 +525,7 @@
        * │ EDGE R (~12%)  channel+ / seek+ / party rail │
        * │ BOTTOM (~28%)  transport / scrub hotzone     │
        * └──────────────────────────────────────────────┘
-       * Ignore: .party-drawer, #partyFab, #partyAvOverlay, .party-live-overlay, modals.
+       * Ignore: .party-drawer, #partyFab, #partyAvOverlay, party docks/modals (not .party-live-overlay mode class).
        * Marker classes: pc-hotzone-top|bottom|center|edge-l|edge-r, pc-hold-active
        */
       function chromeZoneFromEvent(e) {
@@ -544,6 +568,32 @@
         if (relX > 0.88) return "edge-r";
         return "center";
       }
+      function toggleOrRevealChrome(e, fromTouch) {
+        if (!vodHlsActive || (tvRoot && tvRoot.classList.contains("pc-controls-locked"))) return false;
+        if (partyChromeIgnore(e.target)) return false;
+        if (e.target.closest && e.target.closest("button, input, .hls-menu, .hls-chrome, .pc-settings, .pc-xray-sheet, .trailer-back-btn, .vod-ep-chrome, .vod-start-gate")) {
+          return false;
+        }
+        const z = chromeZoneFromEvent(e);
+        if (z === "party") return false;
+        if (fromTouch || z !== "center") {
+          showHlsChrome(false);
+          return true;
+        }
+        const now = Date.now();
+        if (now - lastCenterTap < 280) {
+          lastCenterTap = 0;
+          return true;
+        }
+        lastCenterTap = now;
+        const barEl = document.getElementById("hlsChrome");
+        if (barEl && barEl.classList.contains("show") && !barEl.classList.contains("pinned")) {
+          hideHlsChrome(true);
+        } else {
+          showHlsChrome(false);
+        }
+        return true;
+      }
       trailerLayer.addEventListener("mousemove", (e) => {
         if (!vodHlsActive || (tvRoot && tvRoot.classList.contains("pc-controls-locked"))) return;
         if (partyChromeIgnore(e.target)) return;
@@ -568,29 +618,30 @@
       // Center tap toggles chrome; top/bottom/edges reveal (don't steal control clicks)
       let lastCenterTap = 0;
       trailerLayer.addEventListener("click", (e) => {
-        if (!vodHlsActive || (tvRoot && tvRoot.classList.contains("pc-controls-locked"))) return;
-        if (partyChromeIgnore(e.target)) return;
-        if (e.target.closest("button, input, .hls-menu, .hls-chrome, .pc-settings, .pc-xray-sheet")) return;
-        const z = chromeZoneFromEvent(e);
-        if (z === "party") return;
-        if (z === "center") {
-          const now = Date.now();
-          // Defer to double-tap seek (±10s) — skip toggle on the second tap
-          if (now - lastCenterTap < 280) {
-            lastCenterTap = 0;
+        toggleOrRevealChrome(e, false);
+      });
+      // Fallback: if trailer pe:none races CSS, #v / videoArea still receive the tap
+      const vaTap = document.getElementById("videoArea");
+      if (vaTap && vaTap.dataset.hlsChromeTapBound !== "1") {
+        vaTap.dataset.hlsChromeTapBound = "1";
+        vaTap.addEventListener(
+          "touchstart",
+          (e) => {
+            if (!vodHlsActive || (tvRoot && tvRoot.classList.contains("pc-controls-locked"))) return;
+            if (partyChromeIgnore(e.target)) return;
+            if (e.target.closest && e.target.closest("button, input, .hls-menu, .hls-chrome, .party-drawer, #partyFab")) return;
+            showHlsChrome();
+          },
+          { passive: true }
+        );
+        vaTap.addEventListener("click", (e) => {
+          if (e.target === trailerLayer || (trailerLayer && trailerLayer.contains(e.target) && e.target !== v)) {
+            /* trailer handler already ran via bubble */
             return;
           }
-          lastCenterTap = now;
-          const barEl = document.getElementById("hlsChrome");
-          if (barEl && barEl.classList.contains("show") && !barEl.classList.contains("pinned")) {
-            hideHlsChrome(true);
-          } else {
-            showHlsChrome(false);
-          }
-          return;
-        }
-        showHlsChrome(false);
-      });
+          toggleOrRevealChrome(e, false);
+        });
+      }
     }
     v.addEventListener("timeupdate", onHlsTimeUpdate);
     v.addEventListener("progress", updateBuffered);
@@ -659,8 +710,56 @@
     const el = document.getElementById(id);
     if (!el) return;
     const open = !el.classList.contains("open");
-    document.querySelectorAll(".hls-menu").forEach((m) => m.classList.remove("open"));
-    if (open) el.classList.add("open");
+    document.querySelectorAll(".hls-menu").forEach((m) => {
+      m.classList.remove("open");
+      if (m.dataset.menuHome && m.parentElement === document.body) {
+        const home = document.querySelector(m.dataset.menuHome);
+        if (home) home.appendChild(m);
+      }
+      m.style.position = "";
+      m.style.left = "";
+      m.style.top = "";
+      m.style.right = "";
+      m.style.bottom = "";
+      m.style.zIndex = "";
+      m.style.maxHeight = "";
+    });
+    if (!open) return;
+    el.classList.add("open");
+    const host = el.closest(".hls-menus");
+    const anchor = (host && host.querySelector("button")) || el.previousElementSibling;
+    if (!anchor || !anchor.getBoundingClientRect) return;
+    if (!el.dataset.menuHome && host) {
+      el.dataset.menuHome = "#" + (host.id || "") ;
+      if (!host.id) {
+        host.id = "hlsMenus_" + id;
+        el.dataset.menuHome = "#" + host.id;
+      }
+    }
+    if (el.parentElement !== document.body) document.body.appendChild(el);
+    const gap = 8;
+    const pad = 8;
+    const br = anchor.getBoundingClientRect();
+    const vw = window.innerWidth || 0;
+    const vh = window.innerHeight || 0;
+    const spaceBelow = Math.max(0, vh - br.bottom - gap - pad);
+    const spaceAbove = Math.max(0, br.top - gap - pad);
+    const preferBelow = spaceBelow > spaceAbove;
+    const avail = Math.max(100, preferBelow ? spaceBelow : spaceAbove);
+    el.style.position = "fixed";
+    el.style.right = "auto";
+    el.style.bottom = "auto";
+    el.style.zIndex = "130";
+    el.style.maxHeight = Math.min(320, avail) + "px";
+    const mw = Math.max(el.offsetWidth || 200, 160);
+    const mh = Math.min(el.scrollHeight || 200, Math.min(320, avail));
+    let left = Math.max(pad, Math.min(br.right - mw, vw - mw - pad));
+    let top = preferBelow ? br.bottom + gap : br.top - gap - mh;
+    if (top < pad) top = pad;
+    if (top + mh > vh - pad) top = Math.max(pad, vh - mh - pad);
+    el.style.left = Math.round(left) + "px";
+    el.style.top = Math.round(top) + "px";
+    el.style.maxHeight = Math.round(mh) + "px";
   }
 
   function onHlsTimeUpdate() {
@@ -962,7 +1061,7 @@
     if (size) size.value = lsGet(LS_SUB_SIZE, "22");
     if (color) color.value = lsGet(LS_SUB_COLOR, "#ffffff");
     if (pos) pos.value = lsGet(LS_SUB_POS, "bottom");
-    if (pname) pname.value = lsGet(LS_PARTY_NAME, "Guest");
+    if (pname) pname.value = ensurePartyDisplayName();
     if (pav) {
       const cur =
         (window.SDPartyAV && SDPartyAV.getProvider && SDPartyAV.getProvider()) ||
@@ -981,7 +1080,10 @@
       if (size) lsSet(LS_SUB_SIZE, String(size.value || "22"));
       if (color) lsSet(LS_SUB_COLOR, color.value || "#ffffff");
       if (pos) lsSet(LS_SUB_POS, pos.value || "bottom");
-      if (pname) lsSet(LS_PARTY_NAME, pname.value.trim() || "Guest");
+      if (pname) {
+        const next = pname.value.trim();
+        lsSet(LS_PARTY_NAME, next && next.toLowerCase() !== "guest" ? next : ensurePartyDisplayName());
+      }
       if (pav) {
         const next = pav.value === "jitsi" ? "jitsi" : "webrtc";
         if (window.SDPartyAV && SDPartyAV.setProvider) SDPartyAV.setProvider(next);
@@ -1044,9 +1146,10 @@
     const riskyLast = /^(2embed|2embedskin|moviesapi)$/i.test(String(pref || ""));
     if (pref && !riskyLast) {
       opts = opts || {};
-      const timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : 7000;
+      // Short-circuit stale last-good (3–5s) so we don't burn the full Auto budget.
+      const lastGoodMs = opts.lastGoodTimeoutMs != null ? opts.lastGoodTimeoutMs : 4000;
       const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+      const timer = controller ? setTimeout(() => controller.abort(), lastGoodMs) : null;
       try {
         let url =
           "/vod/resolve?tmdb_id=" +
@@ -1334,9 +1437,44 @@
         "On Demand";
       album = "VOD";
     } else {
+      let episodeLabel = "";
       if (epgNow) {
         title = String(epgNow.title || "").trim();
+        episodeLabel = String(epgNow.episode_label || "").replace(/\s+/g, "");
+        if (!episodeLabel && epgNow.season != null && epgNow.episode != null) {
+          episodeLabel = "S" + epgNow.season + "E" + epgNow.episode;
+        }
       }
+      // Fall back to now-on-air strip (channel : title · S#E#)
+      try {
+        const nowEl = document.getElementById("nowOnAir");
+        const raw = nowEl ? String(nowEl.textContent || "").replace(/\s+/g, " ").trim() : "";
+        if (raw) {
+          const colon = raw.match(/^([^:|]+)\s*[:|]\s*(.+)$/);
+          const body = colon ? colon[2] : raw;
+          if (colon && colon[1] && !ch.name) {
+            /* channel filled below */
+          }
+          const parts = body.split(/\s*·\s*/).map((p) => p.trim()).filter(Boolean);
+          if (isPlaceholderTitle(title) && parts[0] && !/^\d+m\s+left$/i.test(parts[0])) {
+            title = parts[0];
+          }
+          if (!episodeLabel) {
+            for (let i = 0; i < parts.length; i++) {
+              if (/^S\d+E\d+/i.test(parts[i])) {
+                episodeLabel = parts[i].replace(/\s+/g, "");
+                break;
+              }
+            }
+          }
+          if (colon && colon[1]) {
+            const fromNow = colon[1].trim();
+            if (fromNow && (!ch.name || /^channel\s+\d+$/i.test(ch.name))) {
+              ch.name = fromNow;
+            }
+          }
+        }
+      } catch (eNow) {}
       if (isPlaceholderTitle(title)) {
         const hdr =
           document.querySelector("#nowOnAir .hdr-title, #chromeOnAir .hdr-title") ||
@@ -1345,12 +1483,39 @@
         if (hdrText && !isPlaceholderTitle(hdrText) && !isChannelIndexLabel(hdrText)) title = hdrText;
       }
       if (isPlaceholderTitle(title)) title = ch.name || "Live TV";
+      // Notification title: include episode so the shade isn't bare show-name only
+      if (episodeLabel && title && title.toLowerCase().indexOf(episodeLabel.toLowerCase()) === -1) {
+        title = title + " · " + episodeLabel;
+      }
       artist = ch.name || "Live TV";
       const albumBits = ["Live"];
       if (ch.number != null && ch.number !== "") albumBits.push("Ch " + ch.number);
       else if (ch.id) albumBits.push("Ch " + ch.id);
       album = albumBits.join(" · ");
     }
+
+    // While Cast is connected, surface the receiver in album (Chrome's second
+    // line often stays the site origin — pack channel + device into title/album).
+    try {
+      let castDevice = "";
+      let casting = !!castSessionActive;
+      if (window.cast && cast.framework) {
+        const ctx = cast.framework.CastContext.getInstance();
+        const st = ctx.getCastState && ctx.getCastState();
+        if (st === cast.framework.CastState.CONNECTED) casting = true;
+        const session = ctx.getCurrentSession && ctx.getCurrentSession();
+        if (session && session.getCastDevice) {
+          castDevice = (session.getCastDevice().friendlyName || "").trim();
+        }
+      }
+      if (casting) {
+        album = castDevice ? "Casting · " + castDevice : "Casting";
+        // Chrome Cast shade often shows origin instead of artist — fold channel into title.
+        if (artist && title && title.indexOf(artist) === -1) {
+          title = title + " · " + artist;
+        }
+      }
+    } catch (eCast) {}
 
     if (isChannelIndexLabel(artist)) artist = ch.name || (vod ? "On Demand" : "Live TV");
     if (isPlaceholderTitle(title)) title = ch.name || document.title || "StepDaddyLiveHD";
@@ -1368,6 +1533,14 @@
 
   function updateDocumentTitleFromPlayback() {
     try {
+      // Never clobber Music presentation in the OS / tab title while Music owns audio.
+      if (musicOwnsMediaSession()) {
+        try {
+          var mp = window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance;
+          if (mp && typeof mp._syncMediaSession === "function") mp._syncMediaSession();
+        } catch (eM) {}
+        return;
+      }
       const meta = mediaMetaFromDom();
       const base = meta.title || "TV Guide";
       if (base && !isPlaceholderTitle(base) && !isChannelIndexLabel(base)) {
@@ -1376,23 +1549,308 @@
     } catch (e) {}
   }
 
-  function syncMediaSession() {
-    if (!("mediaSession" in navigator)) return;
+  function getMusicPlayerInstance() {
+    try {
+      return window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function musicActivelyPlaying() {
+    try {
+      var mp = getMusicPlayerInstance();
+      if (!mp) return false;
+      if (mp._wantPlaying || mp._switchingTrack) return true;
+      if (mp.audio && mp.audio.src && !mp.audio.paused) return true;
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function musicHasControllableTrack() {
+    try {
+      var mp = getMusicPlayerInstance();
+      return !!(mp && mp.audio && mp.audio.src && mp.state && mp.state.id);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function audioFocusNow() {
+    try {
+      if (window.SDMusicTvAudio && typeof window.SDMusicTvAudio.getFocus === "function") {
+        return window.SDMusicTvAudio.getFocus() || "tv";
+      }
+    } catch (e) {}
+    return "tv";
+  }
+
+  function tvHeldForMusic(v) {
+    try {
+      if (!v || !v.dataset) return false;
+      return v.dataset.sdPausedForMusic === "1" || v.dataset.sdSoftHoldForMusic === "1";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function tvElementPlaying(v) {
+    try {
+      if (!v || v.paused || v.ended) return false;
+      // Soft-hold muted video is a Chrome MediaStyle anchor, not TV ownership.
+      if (tvHeldForMusic(v)) return false;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Dynamic Media Session owner: music | tv | vod | none
+   * Prefer what's actually audible / focused. Music wins while actively playing
+   * (anti-steal). Foreground and background use the same resolver.
+   */
+  function resolveMediaSessionOwner() {
+    try {
+      if (musicActivelyPlaying()) return "music";
+      var focus = audioFocusNow();
+      var mp = getMusicPlayerInstance();
+      if (focus === "music" && musicHasControllableTrack()) return "music";
+      if (window.__sdMusicMediaActive && mp && (mp._wantPlaying || mp._switchingTrack)) return "music";
+
+      var v = document.getElementById("v");
+      var vod = watchingVodNow();
+      if (vod && tvElementPlaying(v)) return "vod";
+      if (tvElementPlaying(v)) return "tv";
+
+      // Paused Music still owns OS controls until Stop, unless TV/VOD is the focus
+      // and live video is eligible (user switched play intent back to TV).
+      if (musicHasControllableTrack() && focus !== "tv") return "music";
+      if (window.__sdMediaSessionOwner === "music" && musicHasControllableTrack() && focus === "music") {
+        return "music";
+      }
+
+      if (v && !v.paused && !tvHeldForMusic(v)) return vod ? "vod" : "tv";
+      if (vod) return "vod";
+      if (v) return "tv";
+    } catch (e) {}
+    return "none";
+  }
+
+  function musicOwnsMediaSession() {
+    try {
+      return resolveMediaSessionOwner() === "music";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function setMediaSessionOwner(owner) {
+    try {
+      var o = owner === "music" || owner === "tv" || owner === "vod" ? owner : null;
+      window.__sdMediaSessionOwner = o;
+      document.documentElement.dataset.sdMediaSessionOwner = o || "";
+    } catch (e) {}
+  }
+
+  function releaseTvMediaSessionForMusic() {
+    setMediaSessionOwner("music");
+    try {
+      window.__sdMusicMediaActive = true;
+      window.__sdMusicHoldsTv = true;
+    } catch (e) {}
+    // Mute + pause #v once. Never call v.play() here — that steals Android audio
+    // focus from Music and leaves playbackState needing a notification Play tap.
+    // Soft-hold play→pause churn (20260910y) caused the "must press Play" glitch.
+    try {
+      if (window.__sdMsSoftHoldTimer) {
+        clearTimeout(window.__sdMsSoftHoldTimer);
+        window.__sdMsSoftHoldTimer = null;
+      }
+    } catch (eT) {}
+    try {
+      const v = document.getElementById("v");
+      if (!v) return;
+      var alreadyHeld = v.dataset.sdPausedForMusic === "1" && v.muted;
+      try {
+        if (!v.dataset.sdMutedForMusic) {
+          v.dataset.sdMutedForMusic = v.muted ? "was-muted" : "1";
+        }
+        v.muted = true;
+        if (v.dataset.sdVolForMusic == null && typeof v.volume === "number") {
+          v.dataset.sdVolForMusic = String(v.volume);
+        }
+        try {
+          v.volume = 0;
+        } catch (eVol) {}
+        v.dataset.sdSoftHoldForMusic = "0";
+        v.dataset.sdPausedForMusic = "1";
+      } catch (e2) {}
+      if (!alreadyHeld && !v.paused) {
+        try {
+          v.pause();
+        } catch (e3) {}
+      }
+      // After pausing TV, immediately nudge Music so Chrome doesn't leave audio paused.
+      try {
+        var mp = getMusicPlayerInstance();
+        if (
+          mp &&
+          mp._wantPlaying &&
+          mp.audio &&
+          mp.audio.src &&
+          mp.audio.paused &&
+          !mp._switchingTrack
+        ) {
+          var p = mp.audio.play();
+          if (p && typeof p.catch === "function") p.catch(function () {});
+        }
+      } catch (eNudge) {}
+    } catch (e) {}
+  }
+
+  function reclaimMediaSessionForTv(force) {
+    try {
+      // Hard rule: never steal OS media controls from actively playing Music.
+      if (musicActivelyPlaying()) return false;
+      var mp = getMusicPlayerInstance();
+      if (!force && mp && (mp._wantPlaying || mp._switchingTrack || (mp.audio && !mp.audio.paused && mp.audio.src))) {
+        return false;
+      }
+      // force=true only valid after Music cleared activity flags (Stop).
+      if (force && window.__sdMusicMediaActive && mp && mp._wantPlaying) return false;
+      // Non-force: paused Music dock still owns while audio focus is music.
+      if (!force && audioFocusNow() === "music" && musicHasControllableTrack()) return false;
+    } catch (e) {}
+    try {
+      window.__sdMusicMediaActive = false;
+      window.__sdMusicHoldsTv = false;
+    } catch (e2) {}
+    try {
+      if (window.__sdMsSoftHoldTimer) {
+        clearTimeout(window.__sdMsSoftHoldTimer);
+        window.__sdMsSoftHoldTimer = null;
+      }
+    } catch (eT) {}
+    try {
+      const v = document.getElementById("v");
+      if (v) {
+        try {
+          delete v.dataset.sdPausedForMusic;
+          delete v.dataset.sdSoftHoldForMusic;
+        } catch (eClr) {}
+        if (v.dataset.sdVolForMusic != null) {
+          try {
+            var vol = Number(v.dataset.sdVolForMusic);
+            if (isFinite(vol)) v.volume = Math.max(0, Math.min(1, vol));
+          } catch (eV) {}
+          try {
+            delete v.dataset.sdVolForMusic;
+          } catch (eD0) {}
+        }
+        if (v.dataset.sdMutedForMusic) {
+          if (v.dataset.sdMutedForMusic !== "was-muted") {
+            try {
+              v.muted = false;
+            } catch (eU) {}
+          }
+          try {
+            delete v.dataset.sdMutedForMusic;
+          } catch (eD) {}
+        }
+      }
+    } catch (eUnmute) {}
+    var vod = watchingVodNow();
+    setMediaSessionOwner(vod ? "vod" : "tv");
+    try {
+      bindTvMediaSessionActionHandlers();
+    } catch (e4) {}
+    // Publish immediately — do not blank metadata first (that delays Android MediaStyle).
+    syncMediaSession(true);
+    return true;
+  }
+
+  function publishTvOrVodMediaSession() {
     const v = document.getElementById("v");
     if (!v) return;
     try {
+      var vod = watchingVodNow();
+      setMediaSessionOwner(vod ? "vod" : "tv");
       const meta = mediaMetaFromDom();
       navigator.mediaSession.metadata = new MediaMetadata(meta);
       navigator.mediaSession.playbackState = v.paused ? "paused" : "playing";
       updateDocumentTitleFromPlayback();
       if (isFinite(v.duration) && v.duration > 0 && isFinite(v.currentTime)) {
-        navigator.mediaSession.setPositionState({
-          duration: v.duration,
-          playbackRate: v.playbackRate || 1,
-          position: Math.min(v.currentTime, v.duration),
-        });
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: v.duration,
+            playbackRate: v.playbackRate || 1,
+            position: Math.min(v.currentTime, v.duration),
+          });
+        } catch (ePos) {}
       }
     } catch (e) {}
+  }
+
+  function syncMediaSession(forceTv) {
+    if (!("mediaSession" in navigator)) return;
+    // Even forceTv cannot overwrite an actively playing Music session (Android live notif).
+    if (musicActivelyPlaying() || (!forceTv && musicOwnsMediaSession())) {
+      try {
+        var mpKeep = getMusicPlayerInstance();
+        if (mpKeep && typeof mpKeep._syncMediaSession === "function") mpKeep._syncMediaSession();
+      } catch (eKeep) {}
+      return;
+    }
+    try {
+      if (!forceTv && musicOwnsMediaSession()) return;
+      var mp = getMusicPlayerInstance();
+      if (!forceTv && mp && (mp._wantPlaying || mp._switchingTrack)) return;
+      if (!forceTv && mp && mp.audio && !mp.audio.paused) return;
+    } catch (eMusic) {}
+    publishTvOrVodMediaSession();
+  }
+
+  /** Continuous owner refresh (foreground + background). Interval OK for Android MediaStyle. */
+  function refreshMediaSessionOwner(reason) {
+    try {
+      var owner = forceTvResolve(reason);
+      if (owner === "music") {
+        var mp = getMusicPlayerInstance();
+        // Metadata/playbackState only — never re-enter releaseTv (avoids pause churn).
+        if (mp && typeof mp._syncMediaSession === "function") mp._syncMediaSession();
+        else if (mp && typeof mp._nudgePlayIfWanted === "function") mp._nudgePlayIfWanted("owner-refresh");
+        return owner;
+      }
+      if (owner === "tv" || owner === "vod") {
+        if (window.__sdMusicMediaActive && !musicActivelyPlaying() && audioFocusNow() === "tv") {
+          // Focus switched to TV while Music idle — reclaim without requiring leave-browser.
+          reclaimMediaSessionForTv(false);
+        } else {
+          publishTvOrVodMediaSession();
+        }
+        return owner;
+      }
+      // none — leave existing handlers; optional paused state
+      try {
+        if (navigator.mediaSession && !musicHasControllableTrack()) {
+          var v = document.getElementById("v");
+          if (!v || v.paused) navigator.mediaSession.playbackState = "none";
+        }
+      } catch (eN) {}
+      return owner;
+    } catch (e) {
+      return "none";
+    }
+  }
+
+  function forceTvResolve(reason) {
+    if (reason === "force-tv" && !musicActivelyPlaying()) {
+      return watchingVodNow() ? "vod" : "tv";
+    }
+    return resolveMediaSessionOwner();
   }
 
   function msSeek(delta) {
@@ -1422,6 +1880,20 @@
         return;
       }
     } catch (e2) {}
+  }
+
+  function msChannelStepFromMediaSession(dir) {
+    try {
+      // Foreground live watch: ignore BT/media next-prev (accidental involuntary zaps).
+      // Lock-screen / background / PiP may still step. Keyboard [/] still uses msChannelStep.
+      const vid = document.getElementById("v");
+      const foreground = document.visibilityState === "visible" && !isInAnyPip(vid);
+      const liveNow =
+        (typeof vodHlsActive !== "undefined" && !vodHlsActive) ||
+        (location.pathname && location.pathname.indexOf("/tv") === 0);
+      if (foreground && liveNow) return;
+    } catch (e) {}
+    msChannelStep(dir);
   }
 
   function autoPipBgEnabled() {
@@ -1541,6 +2013,17 @@
     const v = document.getElementById("v");
     if (!v) return;
     ensureVideoBgAttrs(v);
+    try {
+      // Never auto-resume live over an active Music session / soft-hold.
+      if (musicActivelyPlaying() || musicOwnsMediaSession()) {
+        refreshMediaSessionOwner("resume-blocked-music");
+        return;
+      }
+      if (v.dataset && (v.dataset.sdPausedForMusic === "1" || v.dataset.sdSoftHoldForMusic === "1")) {
+        refreshMediaSessionOwner("resume-blocked-hold");
+        return;
+      }
+    } catch (eM) {}
     // Never auto-pause on hide; if the browser paused us, nudge play when allowed.
     if (v.paused && (bgWasPlaying || msWantImmersiveReturn)) {
       const p = v.play();
@@ -1550,6 +2033,19 @@
   }
 
   async function onPageHiddenKeepAlive() {
+    try {
+      // Music owns the OS media session — do not start TV PiP or steal audio focus.
+      // Hidden path hard-pauses #v (releaseTv switches soft-hold → pause).
+      if (musicOwnsMediaSession() || musicActivelyPlaying()) {
+        bgWasPlaying = false;
+        releaseTvMediaSessionForMusic();
+        try {
+          var mp = getMusicPlayerInstance();
+          if (mp && typeof mp._syncMediaSession === "function") mp._syncMediaSession();
+        } catch (eMs) {}
+        return;
+      }
+    } catch (eMusic) {}
     const v = document.getElementById("v");
     if (!v) return;
     bgWasPlaying = !v.paused && !v.ended;
@@ -1673,10 +2169,19 @@
         "pause",
         () => {
           if (!document.hidden) return;
+          // Never reclaim TV audio over an active Music session (leave-browser / screen-off).
+          if (musicOwnsMediaSession() || musicActivelyPlaying()) return;
+          try {
+            if (v.dataset && (v.dataset.sdPausedForMusic === "1" || v.dataset.sdSoftHoldForMusic === "1")) return;
+          } catch (eD) {}
           if (!bgWasPlaying && !msWantImmersiveReturn) return;
           // Defer: some browsers pause briefly during PiP transition.
           setTimeout(() => {
             if (!document.hidden) return;
+            if (musicOwnsMediaSession() || musicActivelyPlaying()) return;
+            try {
+              if (v.dataset && (v.dataset.sdPausedForMusic === "1" || v.dataset.sdSoftHoldForMusic === "1")) return;
+            } catch (eD2) {}
             const vid = document.getElementById("v");
             if (!vid || !vid.paused) return;
             if (isInAnyPip(vid)) {
@@ -1693,19 +2198,22 @@
     }
   }
 
-  function wireMediaSession() {
-    if (!("mediaSession" in navigator) || navigator.mediaSession.__sdWired) return;
-    navigator.mediaSession.__sdWired = true;
-    const v = document.getElementById("v");
-    ensureVideoBgAttrs(v);
-
+  function bindTvMediaSessionActionHandlers() {
+    if (!("mediaSession" in navigator)) return;
     const wrapMs = (fn) => {
       return function () {
+        if (musicOwnsMediaSession()) {
+          // OS routed to leftover TV wrapper — forward to Music.
+          try {
+            const mp = window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance;
+            if (mp && typeof mp._claimMediaSession === "function") mp._claimMediaSession();
+          } catch (e) {}
+          return;
+        }
         markMediaSessionReturn();
         try {
           fn.apply(null, arguments);
         } catch (e) {}
-        // Notification / lock-screen tap often focuses the tab — request immersive ASAP.
         if (!document.hidden) {
           onPageVisibleRestore();
         }
@@ -1717,23 +2225,60 @@
       [
         "play",
         wrapMs(() => {
+          try {
+            if (musicOwnsMediaSession()) {
+              const mp = window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance;
+              if (mp && mp.audio) {
+                mp._wantPlaying = true;
+                mp.audio.play().catch(() => {});
+                if (typeof mp._claimMediaSession === "function") mp._claimMediaSession();
+                return;
+              }
+            }
+          } catch (eM) {}
           const vid = document.getElementById("v");
-          if (vid) vid.play().catch(() => {});
+          if (vid) {
+            try {
+              delete vid.dataset.sdPausedForMusic;
+            } catch (e) {}
+            vid.play().catch(() => {});
+          }
         }),
       ],
       [
         "pause",
         () => {
-          // User-initiated pause from notification — honor it (do not set immersive return).
+          try {
+            if (musicOwnsMediaSession()) {
+              const mp = window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance;
+              if (mp && mp.audio) {
+                mp._wantPlaying = false;
+                mp.audio.pause();
+                mp.state.playing = false;
+                if (typeof mp._syncPlayButtons === "function") mp._syncPlayButtons();
+                if (typeof mp._syncMediaSession === "function") mp._syncMediaSession();
+                return;
+              }
+            }
+          } catch (eM) {}
           const vid = document.getElementById("v");
           if (vid) vid.pause();
           bgWasPlaying = false;
-          syncMediaSession();
+          syncMediaSession(true);
         },
       ],
       [
         "stop",
         () => {
+          try {
+            if (musicOwnsMediaSession()) {
+              const mp = window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance;
+              if (mp && typeof mp.stop === "function") {
+                mp.stop();
+                return;
+              }
+            }
+          } catch (eM) {}
           const vid = document.getElementById("v");
           if (vid) {
             vid.pause();
@@ -1742,13 +2287,53 @@
             } catch (e) {}
           }
           bgWasPlaying = false;
-          syncMediaSession();
+          syncMediaSession(true);
         },
       ],
-      ["seekbackward", wrapMs((d) => msSeek(-((d && d.seekOffset) || 10)))],
-      ["seekforward", wrapMs((d) => msSeek((d && d.seekOffset) || 10))],
-      ["previoustrack", wrapMs(() => msChannelStep(-1))],
-      ["nexttrack", wrapMs(() => msChannelStep(1))],
+      [
+        "seekbackward",
+        wrapMs((d) => {
+          if (musicOwnsMediaSession()) return;
+          msSeek(-((d && d.seekOffset) || 10));
+        }),
+      ],
+      [
+        "seekforward",
+        wrapMs((d) => {
+          if (musicOwnsMediaSession()) return;
+          msSeek((d && d.seekOffset) || 10);
+        }),
+      ],
+      [
+        "previoustrack",
+        wrapMs(() => {
+          try {
+            if (musicOwnsMediaSession()) {
+              const mp = window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance;
+              if (mp && typeof mp._navPrev === "function") {
+                mp._navPrev();
+                return;
+              }
+            }
+          } catch (eM) {}
+          msChannelStepFromMediaSession(-1);
+        }),
+      ],
+      [
+        "nexttrack",
+        wrapMs(() => {
+          try {
+            if (musicOwnsMediaSession()) {
+              const mp = window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance;
+              if (mp && typeof mp._navNext === "function") {
+                mp._navNext();
+                return;
+              }
+            }
+          } catch (eM) {}
+          msChannelStepFromMediaSession(1);
+        }),
+      ],
     ];
     actions.forEach(([name, fn]) => {
       try {
@@ -1759,17 +2344,27 @@
       navigator.mediaSession.setActionHandler(
         "seekto",
         wrapMs((d) => {
+          if (musicOwnsMediaSession()) {
+            const mp = window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance;
+            if (mp && mp.state && mp.state.source === "listen" && mp.audio && d && d.seekTime != null) {
+              try {
+                mp.audio.currentTime = d.seekTime;
+              } catch (e) {}
+              if (typeof mp._syncMediaSession === "function") mp._syncMediaSession();
+            }
+            return;
+          }
           const vid = document.getElementById("v");
-          if (!vid || d.seekTime == null) return;
+          if (!vid || !d || d.seekTime == null) return;
           try {
             vid.currentTime = d.seekTime;
           } catch (e) {}
         })
       );
     } catch (e) {}
-    // Chromium: OS can request PiP when user leaves the tab/app.
     try {
       navigator.mediaSession.setActionHandler("enterpictureinpicture", async () => {
+        if (musicOwnsMediaSession()) return;
         markMediaSessionReturn();
         await enterVideoPip(document.getElementById("v"));
         syncMediaSession();
@@ -1781,12 +2376,22 @@
         if (!document.hidden) onPageVisibleRestore();
       });
     } catch (e) {}
+  }
 
-    if (v) {
+  function wireMediaSession() {
+    if (!("mediaSession" in navigator) || navigator.mediaSession.__sdWired) return;
+    navigator.mediaSession.__sdWired = true;
+    const v = document.getElementById("v");
+    ensureVideoBgAttrs(v);
+    bindTvMediaSessionActionHandlers();
+
+    if (v && !v.__sdMsEvents) {
+      v.__sdMsEvents = true;
       ["play", "pause", "ended", "timeupdate", "loadedmetadata", "ratechange"].forEach((ev) => {
         v.addEventListener(
           ev,
           () => {
+            if (musicOwnsMediaSession()) return;
             if (ev === "timeupdate" && Math.floor(v.currentTime) % 3 !== 0) return;
             syncMediaSession();
           },
@@ -1795,7 +2400,20 @@
       });
     }
     syncMediaSession();
-    setInterval(syncMediaSession, 8000);
+    refreshMediaSessionOwner("wire");
+    if (!window.__sdMsTvInterval) {
+      // Foreground: 1.2s owner refresh so Android MediaStyle updates without leave-browser.
+      // Background: same loop (cheap) keeps playbackState/metadata warm.
+      window.__sdMsTvInterval = setInterval(function () {
+        try {
+          refreshMediaSessionOwner("interval");
+        } catch (eI) {
+          try {
+            syncMediaSession();
+          } catch (e2) {}
+        }
+      }, 1200);
+    }
   }
 
   function ensureKeysHelp() {
@@ -1815,6 +2433,7 @@
       "<dt>M</dt><dd>Mute</dd>" +
       "<dt>F</dt><dd>Fullscreen</dd>" +
       "<dt>G</dt><dd>Guide</dd>" +
+      "<dt>C</dt><dd>Categories drawer</dd>" +
       "<dt>P</dt><dd>Party panel / cycle chat mode</dd>" +
       "<dt>[ / ]</dt><dd>Channel − / + (live)</dd>" +
       "<dt>0–9</dt><dd>Volume 0%–90%</dd>" +
@@ -1880,8 +2499,17 @@
           if (typeof vodHlsActive !== "undefined" && vodHlsActive) return; // cinema.js
           if (!v) return;
           e.preventDefault();
-          if (v.paused) v.play().catch(() => {});
-          else v.pause();
+          if (v.paused) {
+            try {
+              if (typeof window.__sdMarkUserPausedLive === "function") window.__sdMarkUserPausedLive(false);
+            } catch (err) {}
+            v.play().catch(() => {});
+          } else {
+            try {
+              if (typeof window.__sdMarkUserPausedLive === "function") window.__sdMarkUserPausedLive(true);
+            } catch (err) {}
+            v.pause();
+          }
           syncMediaSession();
           return;
         }
@@ -2067,6 +2695,182 @@
     return absCastUrl(String(raw || "").split("?")[0]);
   }
 
+  function resolveCastChannelId() {
+    try {
+      if (typeof channelId !== "undefined" && channelId) return String(channelId);
+    } catch (e) {}
+    try {
+      const m = String(location.pathname || "").match(/\/tv\/([^/?#]+)/);
+      if (m && m[1]) return decodeURIComponent(m[1]);
+    } catch (e2) {}
+    return "";
+  }
+
+  function castDomText(id) {
+    try {
+      const el = document.getElementById(id);
+      return el ? String(el.textContent || "").replace(/\s+/g, " ").trim() : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function castDomImgUrl() {
+    const ids = ["cinemaPosterLg", "hdrPoster", "chromePoster", "cinemaPoster"];
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        const el = document.getElementById(ids[i]);
+        if (!el) continue;
+        const src = el.currentSrc || el.getAttribute("src") || "";
+        if (src && !/^data:/i.test(src)) return absCastUrl(src);
+      } catch (e) {}
+    }
+    try {
+      const logo = document.querySelector(".ch-logo img, .channel-logo img, #nowOnAir img");
+      const src = logo && (logo.currentSrc || logo.getAttribute("src"));
+      if (src && !/^data:/i.test(src)) return absCastUrl(src);
+    } catch (e2) {}
+    return "";
+  }
+
+  function parseNowOnAirBits(raw) {
+    const text = String(raw || "").trim();
+    if (!text) return { channel: "", title: "", episode: "" };
+    // "USA Network : 9-1-1 · S6E16 · 47m left"
+    let channel = "";
+    let rest = text;
+    const colon = text.match(/^([^:|]+)\s*[:|]\s*(.+)$/);
+    if (colon) {
+      channel = colon[1].trim();
+      rest = colon[2].trim();
+    }
+    const parts = rest.split(/\s*·\s*|\s*\|\s*/).map((p) => p.trim()).filter(Boolean);
+    let title = parts[0] || rest;
+    let episode = "";
+    for (let i = 0; i < parts.length; i++) {
+      if (/^S\d+E\d+/i.test(parts[i])) {
+        episode = parts[i].replace(/\s+/g, "");
+        if (i === 0 && parts[1]) title = parts[1];
+        break;
+      }
+    }
+    if (/^\d+m\s+left$/i.test(title) || /^loading/i.test(title)) title = "";
+    return { channel, title, episode };
+  }
+
+  function castChromeImages(urls) {
+    const out = [];
+    const seen = {};
+    for (let i = 0; i < urls.length; i++) {
+      const u = absCastUrl(urls[i]);
+      if (!u || seen[u] || /^blob:/i.test(u) || /^data:/i.test(u)) continue;
+      seen[u] = true;
+      try {
+        out.push(new chrome.cast.Image(u));
+      } catch (e) {}
+      if (out.length >= 3) break;
+    }
+    return out;
+  }
+
+  async function buildCastMetadata() {
+    const id = resolveCastChannelId();
+    const nowBits = parseNowOnAirBits(castDomText("nowOnAir"));
+    let channelName = nowBits.channel || castDomText("nowCh") || castDomText("pcTitle") || "";
+    let showTitle = nowBits.title || "";
+    let episodeLabel = nowBits.episode || "";
+    let season = null;
+    let episode = null;
+    let year = null;
+    let subtitlePlot = "";
+    let poster = castDomImgUrl();
+    let backdrop = "";
+
+    // Prefer structured now-next payload when available.
+    if (id) {
+      try {
+        const r = await fetch("/epg/now-next/" + encodeURIComponent(id), { cache: "no-store" });
+        if (r.ok) {
+          const j = await r.json();
+          const now = j && j.now;
+          if (j && j.tvg_id && !channelName) channelName = String(j.tvg_id).replace(/\.[a-z]{2}$/i, "");
+          if (now) {
+            if (now.title) showTitle = String(now.title).trim();
+            if (now.episode_label) episodeLabel = String(now.episode_label).replace(/\s+/g, "");
+            if (now.season != null && now.season !== "") season = Number(now.season);
+            if (now.episode != null && now.episode !== "") episode = Number(now.episode);
+            if (now.year != null && now.year !== "") year = now.year;
+            if (now.subtitle && String(now.subtitle).length > 12) subtitlePlot = String(now.subtitle).trim();
+            if (now.poster_url) poster = absCastUrl(now.poster_url);
+            if (now.backdrop_url) backdrop = absCastUrl(now.backdrop_url);
+            if (now.image && !poster) poster = absCastUrl(now.image);
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!showTitle) {
+      showTitle = castDomText("cinemaTitle") || (document.title || "").split("—")[0].trim() || "Live TV";
+    }
+    if (!channelName) {
+      const sub = castDomText("cinemaSub");
+      if (sub) channelName = sub.split("·")[0].trim();
+    }
+    if ((!season || !episode) && episodeLabel) {
+      const m = String(episodeLabel).match(/S(\d+)E(\d+)/i);
+      if (m) {
+        if (season == null) season = Number(m[1]);
+        if (episode == null) episode = Number(m[2]);
+      }
+    }
+
+    const subBits = [];
+    if (channelName) subBits.push(channelName);
+    if (episodeLabel) subBits.push(episodeLabel);
+    else if (season != null && episode != null && !Number.isNaN(season) && !Number.isNaN(episode)) {
+      subBits.push("S" + season + "E" + episode);
+    }
+    if (year) subBits.push(String(year));
+    const subtitle = subBits.join(" · ") || "StepDaddyLiveHD";
+
+    // Absolute logo fallback: /logo/{id} when present on this gateway.
+    if (!poster && id) {
+      try {
+        poster = absCastUrl("/logo/" + encodeURIComponent(id));
+      } catch (e) {}
+    }
+    const images = castChromeImages([poster, backdrop]);
+
+    try {
+      const isSeries =
+        (season != null && !Number.isNaN(season)) ||
+        (episode != null && !Number.isNaN(episode)) ||
+        !!episodeLabel;
+      if (isSeries && chrome.cast.media.TvShowMediaMetadata) {
+        const md = new chrome.cast.media.TvShowMediaMetadata();
+        md.metadataType = chrome.cast.media.MetadataType.TV_SHOW;
+        md.seriesTitle = showTitle;
+        md.title = episodeLabel ? showTitle + " · " + episodeLabel : showTitle;
+        if (season != null && !Number.isNaN(season)) md.season = season;
+        if (episode != null && !Number.isNaN(episode)) md.episode = episode;
+        if (images.length) md.images = images;
+        // Some receivers also surface subtitle via generic fields.
+        try { md.subtitle = subtitle; } catch (e2) {}
+        return md;
+      }
+    } catch (e3) {}
+
+    const md = new chrome.cast.media.GenericMediaMetadata();
+    try { md.metadataType = chrome.cast.media.MetadataType.GENERIC; } catch (e4) {}
+    md.title = showTitle;
+    md.subtitle = subtitle;
+    if (subtitlePlot && subtitlePlot.length < 180) {
+      try { md.subtitle = subtitle + (subtitle ? " — " : "") + subtitlePlot.slice(0, 120); } catch (e5) {}
+    }
+    if (images.length) md.images = images;
+    return md;
+  }
+
   function castContentType(url) {
     const u = String(url || "").toLowerCase();
     if (u.includes(".m3u8") || u.includes("/live/") || u.includes("/catchup/")) {
@@ -2199,14 +3003,27 @@
         ? chrome.cast.media.StreamType.LIVE
         : chrome.cast.media.StreamType.BUFFERED;
       try {
-        const titleEl = document.getElementById("nowCh") || document.getElementById("pcTitle");
-        mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
-        mediaInfo.metadata.title = (titleEl && titleEl.textContent) || document.title || "StepDaddyLiveHD";
-      } catch (e) {}
+        mediaInfo.metadata = await buildCastMetadata();
+      } catch (e) {
+        try {
+          mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
+          mediaInfo.metadata.title = document.title || "StepDaddyLiveHD";
+        } catch (e2) {}
+      }
+      try {
+        const ch = resolveCastChannelId();
+        if (ch) mediaInfo.customData = { channel_id: ch, source: "StepDaddyLiveHD" };
+      } catch (e3) {}
       const req = new chrome.cast.media.LoadRequest(mediaInfo);
       await session.loadMedia(req);
       setCastUiActive(true);
-      castNotify("Casting to device");
+      const deviceName =
+        (session.getCastDevice && session.getCastDevice() && session.getCastDevice().friendlyName) ||
+        "device";
+      const metaTitle =
+        (mediaInfo.metadata && (mediaInfo.metadata.title || mediaInfo.metadata.seriesTitle)) || "Live";
+      castNotify("Casting “" + metaTitle + "” to " + deviceName);
+      try { syncMediaSession(); } catch (eSync) {}
       return true;
     } catch (e) {
       return false;
@@ -2321,8 +3138,35 @@
   window.SDCast = {
     prompt: promptCast,
     resolveUrl: resolveCastMediaUrl,
+    buildMetadata: buildCastMetadata,
     isActive: () => castSessionActive,
     ensureAttrs: ensureVideoBgAttrs,
+    /** Reload current Cast session media with enriched EPG metadata (no device picker). */
+    refreshMetadata: async function refreshCastMetadata() {
+      try {
+        if (!window.cast || !cast.framework || !window.chrome || !chrome.cast) return false;
+        const ctx = cast.framework.CastContext.getInstance();
+        const session = ctx.getCurrentSession();
+        if (!session) return false;
+        const mediaUrl = resolveCastMediaUrl();
+        if (!mediaUrl) return false;
+        const mediaInfo = new chrome.cast.media.MediaInfo(mediaUrl, castContentType(mediaUrl));
+        mediaInfo.streamType = /\/live\/|\.m3u8/i.test(mediaUrl)
+          ? chrome.cast.media.StreamType.LIVE
+          : chrome.cast.media.StreamType.BUFFERED;
+        mediaInfo.metadata = await buildCastMetadata();
+        try {
+          const ch = resolveCastChannelId();
+          if (ch) mediaInfo.customData = { channel_id: ch, source: "StepDaddyLiveHD" };
+        } catch (e) {}
+        await session.loadMedia(new chrome.cast.media.LoadRequest(mediaInfo));
+        setCastUiActive(true);
+        try { syncMediaSession(); } catch (e2) {}
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
   };
 
   window.SDFeatures = {
@@ -2331,8 +3175,14 @@
     prefetchResolve,
     reportProgress,
     showHlsChrome,
-    partyName: () => lsGet(LS_PARTY_NAME, "Guest"),
+    partyName: () => ensurePartyDisplayName(),
     syncMediaSession,
+    musicOwnsMediaSession,
+    musicActivelyPlaying,
+    resolveMediaSessionOwner,
+    refreshMediaSessionOwner,
+    releaseTvMediaSessionForMusic,
+    reclaimMediaSessionForTv,
     toggleKeysHelp,
     enterVideoPip,
     exitVideoPip,

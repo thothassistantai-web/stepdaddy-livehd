@@ -7,6 +7,8 @@ def _friendly_next(next_path: str) -> str:
         return "TV guide"
     if p.startswith("/vod"):
         return "On demand"
+    if p.startswith("/music"):
+        return "Music"
     if p.startswith("/party"):
         return "Watch party"
     if p.startswith("/play"):
@@ -176,27 +178,27 @@ def render_auth_page(next_path: str, device_id: str) -> str:
       <div class="brand">
         <div class="logo" aria-hidden="true">SD</div>
         <div>
-          <h1>StepDaddyLiveHD</h1>
-          <p class="sub" id="greeting">Enter your access PIN</p>
+    <h1>StepDaddyLiveHD</h1>
+          <p class="sub" id="greeting">Enter your access PIN (usually 6 digits)</p>
         </div>
       </div>
       <div class="dest"><span>Unlock to</span> {dest}</div>
       <div class="dots" id="dots" aria-hidden="true"></div>
       <div class="display" id="display">PIN</div>
       <div class="pad" role="group" aria-label="PIN keypad">
-        <button type="button" data-digit="1">1</button>
-        <button type="button" data-digit="2">2</button>
-        <button type="button" data-digit="3">3</button>
-        <button type="button" data-digit="4">4</button>
-        <button type="button" data-digit="5">5</button>
-        <button type="button" data-digit="6">6</button>
-        <button type="button" data-digit="7">7</button>
-        <button type="button" data-digit="8">8</button>
-        <button type="button" data-digit="9">9</button>
-        <button type="button" class="action" id="clear">Clear</button>
-        <button type="button" data-digit="0">0</button>
+      <button type="button" data-digit="1">1</button>
+      <button type="button" data-digit="2">2</button>
+      <button type="button" data-digit="3">3</button>
+      <button type="button" data-digit="4">4</button>
+      <button type="button" data-digit="5">5</button>
+      <button type="button" data-digit="6">6</button>
+      <button type="button" data-digit="7">7</button>
+      <button type="button" data-digit="8">8</button>
+      <button type="button" data-digit="9">9</button>
+      <button type="button" class="action" id="clear">Clear</button>
+      <button type="button" data-digit="0">0</button>
         <button type="button" class="action" id="back" aria-label="Backspace">⌫</button>
-        <button type="button" class="enter" id="submit">Unlock</button>
+      <button type="button" class="enter" id="submit">Unlock</button>
       </div>
 
       <div class="opts">
@@ -281,11 +283,11 @@ def render_auth_page(next_path: str, device_id: str) -> str:
     if (nick) document.getElementById("greeting").textContent = "Welcome back, " + nick;
 
     function slotCount() {{
-      const last = parseInt(lsGet(LS_PIN_LEN, "4"), 10);
-      return Math.min(MAX_LEN, Math.max(4, isNaN(last) ? 4 : last));
+      const last = parseInt(lsGet(LS_PIN_LEN, "6"), 10);
+      return Math.min(MAX_LEN, Math.max(6, isNaN(last) ? 6 : last));
     }}
     function renderDots() {{
-      const n = Math.max(slotCount(), pin.length || 4);
+      const n = Math.max(slotCount(), pin.length || 6);
       dots.innerHTML = "";
       for (let i = 0; i < n; i++) {{
         const d = document.createElement("div");
@@ -294,7 +296,9 @@ def render_auth_page(next_path: str, device_id: str) -> str:
       }}
     }}
     function render() {{
-      display.textContent = pin ? (pin.length + " digit" + (pin.length === 1 ? "" : "s")) : "PIN";
+      display.textContent = pin
+        ? (pin.length + " / " + slotCount() + " digits")
+        : "6-digit PIN (4–8 OK)";
       submitBtn.disabled = !pin || submitting;
       renderDots();
     }}
@@ -302,8 +306,8 @@ def render_auth_page(next_path: str, device_id: str) -> str:
     function scheduleAuto() {{
       clearTimeout(autoTimer);
       if (!autoEl.checked || !pin) return;
-      const last = parseInt(lsGet(LS_PIN_LEN, "0"), 10) || 0;
-      const ready = (last >= 4 && pin.length === last) || pin.length >= 6;
+      const last = parseInt(lsGet(LS_PIN_LEN, "6"), 10) || 6;
+      const ready = pin.length === last || pin.length >= 6;
       if (!ready) return;
       autoTimer = setTimeout(() => submitPin(), 280);
     }}

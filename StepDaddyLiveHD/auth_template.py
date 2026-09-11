@@ -7,6 +7,8 @@ def _friendly_next(next_path: str) -> str:
         return "TV guide"
     if p.startswith("/vod"):
         return "On demand"
+    if p.startswith("/music"):
+        return "Music"
     if p.startswith("/party"):
         return "Watch party"
     if p.startswith("/play"):

@@ -1,0 +1,193 @@
+/* Music library — shared add-to-playlist + chip tokens (TV guide blues/greys) */
+:root {
+  --ml-lib-accent: #3b82f6;
+}
+
+.sd-ml-add {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(18, 21, 28, 0.92);
+  color: #e8eaef;
+  font: 700 18px/1 system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  touch-action: manipulation;
+  z-index: 2;
+  user-select: none;
+}
+.sd-ml-add:hover,
+.sd-ml-add:focus-visible {
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #bfdbfe;
+  outline: none;
+  background: rgba(59, 130, 246, 0.18);
+}
+.sd-ml-add.added {
+  background: rgba(59, 130, 246, 0.35);
+  border-color: rgba(59, 130, 246, 0.7);
+  color: #fff;
+}
+
+.ml-actions,
+.ml-track-end,
+.mr-station-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ml-more {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #9aa3b2;
+  font: 700 16px/1 system-ui, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ml-more:hover,
+.ml-more:focus-visible {
+  color: #e8eaef;
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.ml-card-art-wrap,
+.mh-card-art-wrap {
+  position: relative;
+  display: block;
+}
+.ml-card-art-wrap .sd-ml-add,
+.mh-card-art-wrap .sd-ml-add {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.ml-card-art-wrap .ml-actions {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+}
+.ml-card-art-wrap .ml-more {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(18, 21, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e8eaef;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.ml-card-art-wrap .ml-actions .sd-ml-add {
+  position: static;
+  box-shadow: none;
+}
+
+.ms-hit-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+.ms-hit-row .ms-hit {
+  min-width: 0;
+}
+.ms-hit-row .sd-ml-add,
+.ms-hit-row .ml-more {
+  margin-right: 2px;
+}
+.ms-hit-row .ml-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+}
+
+/* Show ⋮ on Home track cards (hidden on Listen shelf cards — + only there). */
+.mh-card-art-wrap .ml-actions {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  gap: 4px;
+}
+.mh-card-art-wrap .ml-more {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(18, 21, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e8eaef;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.mh-card-art-wrap .ml-actions .sd-ml-add {
+  position: static;
+  box-shadow: none;
+}
+
+.ml-pop-menu {
+  position: fixed;
+  z-index: 10050;
+  min-width: 168px;
+  padding: 6px;
+  border-radius: 12px;
+  background: #12151c;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ml-pop-menu button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #e8eaef;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font: 600 13px/1.2 system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ml-pop-menu button:hover,
+.ml-pop-menu button:focus-visible {
+  background: rgba(59, 130, 246, 0.18);
+  color: #dbeafe;
+  outline: none;
+}
+.ml-pop-hint {
+  position: fixed;
+  z-index: 10060;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(18, 21, 28, 0.94);
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  color: #dbeafe;
+  font: 600 12px/1 system-ui, sans-serif;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+/* Track-row ⋮ stays visible (not shelf-card hide rule). */
+.ml-track .ml-more,
+.ml-track-end .ml-more {
+  display: inline-grid;
+  place-items: center;
+}

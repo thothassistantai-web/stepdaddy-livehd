@@ -1,0 +1,1103 @@
+/* Unified Music player — Radio + Listen (Spotify-like dock + dense expanded sheet) */
+.sd-music-player {
+  --smp-bg: rgba(10, 12, 18, 0.97);
+  --smp-panel: #141820;
+  --smp-panel-2: #1a2130;
+  --smp-text: #e8eaef;
+  --smp-muted: #9aa3b2;
+  --smp-accent: #3b82f6;
+  --smp-accent-soft: rgba(59, 130, 246, 0.18);
+  --smp-line: rgba(255, 255, 255, 0.08);
+  --smp-danger: #f87171;
+  position: sticky;
+  bottom: 0;
+  z-index: 50;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+.sd-music-player.show { pointer-events: auto; }
+.sd-music-player .smp-dock {
+  position: relative;
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin: 0 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  padding: 8px 10px 10px;
+  background: rgba(28, 32, 40, 0.94);
+  border: 1px solid var(--smp-line);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  /* Solid fill preferred while Music body scrolls — blur on sticky dock fights scroll paint */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.sd-music-player.show .smp-dock { display: flex; }
+/* Expanded sheet owns chrome — hide mini dock so it can't leave a black strip */
+.sd-music-player.expanded .smp-dock { display: none !important; }
+.sd-music-player .smp-dock-progress {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+  pointer-events: none;
+}
+.sd-music-player .smp-dock-progress i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: #fff;
+  border-radius: inherit;
+}
+/* Mini-player on live TV (Music sheet closed) — fixed, safe-area aware */
+.sd-music-player.smp-on-tv {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  width: 100%;
+}
+/* Dock owns touch gestures on /tv; control buttons keep tap targets */
+.sd-music-player.smp-on-tv .smp-dock {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  min-height: 84px;
+  padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
+  gap: 14px;
+}
+.sd-music-player.smp-on-tv .smp-controls,
+.sd-music-player.smp-on-tv .smp-controls button {
+  touch-action: manipulation;
+}
+/* 10-foot / TV remote: larger art + transport (prev/next visible on dock) */
+.sd-music-player .smp-controls .smp-dock-skip {
+  display: none;
+}
+.sd-music-player.smp-on-tv .smp-controls .smp-dock-skip {
+  display: inline-flex;
+  min-width: 56px;
+  min-height: 56px;
+  max-width: none;
+  font-size: 22px;
+}
+.sd-music-player.smp-on-tv .smp-art {
+  flex-basis: 64px;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+}
+.sd-music-player.smp-on-tv .smp-title {
+  font-size: 18px;
+  line-height: 1.25;
+}
+.sd-music-player.smp-on-tv .smp-sub,
+.sd-music-player.smp-on-tv .smp-now,
+.sd-music-player.smp-on-tv .smp-next {
+  font-size: 15px;
+}
+.sd-music-player.smp-on-tv .smp-controls {
+  gap: 8px;
+}
+.sd-music-player.smp-on-tv .smp-controls button {
+  min-width: 56px;
+  min-height: 56px;
+  font-size: 20px;
+}
+.sd-music-player.smp-on-tv .smp-controls .smp-main {
+  min-width: 64px;
+  min-height: 64px;
+  font-size: 24px;
+}
+.sd-music-player.smp-on-tv .smp-controls .ghost,
+.sd-music-player.smp-on-tv .smp-controls [data-smp-stop] {
+  min-width: 56px;
+  min-height: 56px;
+  opacity: 0.9;
+}
+.sd-music-player.smp-on-tv .smp-controls .smp-dock-fav {
+  font-size: 22px;
+}
+/* When Music sheet is open, pin dock to sheet bottom so it doesn't fight body scroll */
+#musicCatalog.music-home.open > .sd-music-player.show {
+  position: relative;
+  flex: 0 0 auto;
+  bottom: auto;
+  z-index: 55;
+  margin: 0;
+  padding: 0;
+}
+.sd-music-player .smp-art {
+  position: relative;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--smp-panel);
+  cursor: pointer;
+}
+.sd-music-player .smp-art img,
+.sd-music-player .smp-art video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sd-music-player .smp-art video {
+  opacity: 0;
+  transition: opacity 0.85s ease;
+  pointer-events: none;
+}
+.sd-music-player.has-video .smp-art video.show,
+.sd-music-player.has-video .smp-sheet-art video.show {
+  opacity: 1;
+}
+.sd-music-player.has-video .smp-art img,
+.sd-music-player.has-video .smp-sheet-art img {
+  opacity: 0;
+  transition: opacity 0.85s ease;
+}
+.sd-music-player .smp-meta {
+  flex: 1;
+  min-width: 0;
+  color: var(--smp-text);
+  font: 500 13px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.sd-music-player .smp-title {
+  font-weight: 700;
+  font-size: 13px;
+}
+.sd-music-player .smp-sub,
+.sd-music-player .smp-now,
+.sd-music-player .smp-next {
+  color: var(--smp-muted);
+  font-size: 11px;
+  margin-top: 1px;
+}
+.sd-music-player .smp-marquee {
+  white-space: nowrap;
+  overflow: hidden;
+  position: relative;
+  max-width: 100%;
+}
+.sd-music-player .smp-marquee-inner {
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+}
+.sd-music-player .smp-marquee.is-overflow .smp-marquee-inner {
+  animation: smp-marquee-scroll var(--smp-mq-dur, 12s) linear infinite;
+  padding-right: 24px;
+}
+.sd-music-player .smp-marquee:not(.is-overflow) .smp-marquee-inner {
+  animation: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes smp-marquee-scroll {
+  0%, 8% { transform: translateX(0); }
+  92%, 100% { transform: translateX(calc(-1 * var(--smp-mq-dist, 0px))); }
+}
+.sd-music-player .smp-now { color: #93c5fd; }
+.sd-music-player .smp-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.sd-music-player .smp-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--smp-text);
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sd-music-player .smp-controls .smp-dock-fav {
+  font-size: 18px;
+  color: var(--smp-muted);
+}
+.sd-music-player .smp-controls .smp-dock-fav.on {
+  color: #22c55e;
+}
+.sd-music-player .smp-controls button .smp-ico,
+.sd-music-player .smp-sheet-controls button .smp-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  height: 1.1em;
+  line-height: 1;
+  font-size: 1em;
+  pointer-events: none;
+}
+.sd-music-player .smp-controls button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.sd-music-player .smp-controls .smp-main {
+  background: transparent;
+  color: #fff;
+  min-width: 42px;
+  min-height: 42px;
+  font-size: 18px;
+}
+.sd-music-player .smp-controls .ghost {
+  background: transparent;
+  border: 0;
+  opacity: 0.75;
+  min-width: 36px;
+}
+/* Stop must stay a distinct affordance — never collapse away on narrow /tv docks */
+.sd-music-player .smp-controls [data-smp-stop] {
+  display: inline-flex !important;
+  flex-shrink: 0;
+}
+.sd-music-player .smp-controls [data-smp-next],
+.sd-music-player .smp-controls [data-smp-prev] {
+  display: inline-flex;
+  flex-shrink: 0;
+  min-width: 40px;
+  max-width: 48px;
+  overflow: hidden;
+}
+.sd-music-player audio {
+  width: 0;
+  height: 0;
+  opacity: 0;
+  position: absolute;
+  pointer-events: none;
+}
+
+/* Expanded now-playing sheet — Spotify-inspired density: large art, bottom-weighted chrome */
+.sd-music-player .smp-sheet {
+  --smp-vh: 100dvh;
+  --smp-vw: 100vw;
+  --smp-pad-x: clamp(16px, 4.5vw, 28px);
+  --smp-pad-y: clamp(4px, 1vh, 10px);
+  --smp-art: min(88vw, calc(var(--smp-vh) * 0.46), 420px);
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  width: 100dvw;
+  height: 100vh;
+  height: var(--smp-vh);
+  max-height: 100dvh;
+  z-index: 80;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-columns: 1fr;
+  gap: 0;
+  padding:
+    calc(var(--smp-pad-y) + env(safe-area-inset-top, 0px))
+    calc(var(--smp-pad-x) + env(safe-area-inset-right, 0px))
+    calc(8px + env(safe-area-inset-bottom, 0px))
+    calc(var(--smp-pad-x) + env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+  /* Solid footing; art skin paints via ::before/::after (var-01 strong blur + blue wash) */
+  background: #07090d;
+  color: var(--smp-text);
+  font: 500 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  isolation: isolate;
+}
+/* Artist/album photo skin — blur + blue wash + fade-to-black chrome blend */
+.sd-music-player .smp-sheet::before {
+  content: "";
+  position: absolute;
+  inset: -12% -8% auto -8%;
+  height: 78%;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--smp-skin, none);
+  background-size: cover;
+  background-position: center 28%;
+  background-repeat: no-repeat;
+  filter: blur(42px) saturate(1.2) brightness(0.78);
+  transform: scale(1.18);
+  opacity: 0.92;
+  -webkit-mask-image: linear-gradient(180deg, #000 42%, rgba(0, 0, 0, 0.55) 68%, transparent 92%);
+  mask-image: linear-gradient(180deg, #000 42%, rgba(0, 0, 0, 0.55) 68%, transparent 92%);
+}
+.sd-music-player .smp-sheet::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 55% at 50% -5%, rgba(59, 130, 246, 0.42), transparent 58%),
+    linear-gradient(180deg, rgba(20, 48, 110, 0.28) 0%, rgba(7, 9, 13, 0.15) 38%, rgba(7, 9, 13, 0.72) 68%, #07090d 88%);
+}
+.sd-music-player .smp-sheet:not(.has-skin)::before {
+  opacity: 0;
+}
+.sd-music-player .smp-sheet:not(.has-skin)::after {
+  background:
+    radial-gradient(120% 55% at 50% -5%, rgba(59, 130, 246, 0.22), transparent 58%),
+    linear-gradient(180deg, #1a2330 0%, #0c1018 42%, #07090d 100%);
+}
+.sd-music-player .smp-sheet > * {
+  position: relative;
+  z-index: 1;
+}
+.sd-music-player .smp-sheet[hidden] { display: none !important; }
+/* Author display:* rules beat UA [hidden]; keep aria/JS hidden respected */
+.sd-music-player .smp-seek[hidden],
+.sd-music-player .smp-lyrics[hidden],
+.sd-music-player .smp-queue-panel[hidden],
+.sd-music-player .smp-info-panel[hidden],
+.sd-music-player .smp-sheet-now[hidden],
+.sd-music-player .smp-sheet-next[hidden],
+.sd-music-player .smp-now[hidden],
+.sd-music-player .smp-next[hidden],
+.sd-music-player .smp-dial-hint[hidden],
+.sd-music-player .smp-swipe-hint[hidden],
+.sd-music-player .smp-chip[hidden],
+.sd-music-player .smp-dock .smp-art video[hidden] {
+  display: none !important;
+}
+
+.sd-music-player .smp-sheet-top {
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-shrink: 0;
+  min-height: 44px;
+}
+.sd-music-player .smp-sheet-context {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.sd-music-player .smp-sheet-context small {
+  display: block;
+  color: var(--smp-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sd-music-player .smp-icon-btn {
+  min-width: 40px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--smp-text);
+  cursor: pointer;
+  font-size: 20px;
+}
+.sd-music-player .smp-band-pill {
+  flex: 0 0 auto;
+  min-width: 0;
+  text-align: center;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #fff;
+  font-weight: 750;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  border: 0;
+  max-width: 70vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sd-music-player .smp-band-pill[data-band="am"],
+.sd-music-player .smp-band-pill[data-band="internet"],
+.sd-music-player .smp-band-pill[data-band="listen"] {
+  background: transparent;
+  border-color: transparent;
+  color: #fff;
+}
+
+.sd-music-player .smp-dial-hint {
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(4px, 1.5vw, 10px);
+  transform: translateX(var(--smp-dial-nudge, 0px));
+  transition: transform 0.12s ease-out;
+  flex-shrink: 0;
+  margin: 2px 0 4px;
+}
+.sd-music-player .smp-dial-arrow {
+  min-width: 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--smp-text);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sd-music-player .smp-dial-readout {
+  min-width: min(40vw, 140px);
+  text-align: center;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--smp-line);
+  font-variant-numeric: tabular-nums;
+}
+.sd-music-player .smp-dial-readout span {
+  display: block;
+  font-size: clamp(15px, 4vw, 18px);
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+.sd-music-player .smp-dial-readout small {
+  display: block;
+  margin-top: 1px;
+  color: var(--smp-muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Main stage+body fill remaining height — art dominates, controls pinned low */
+.sd-music-player .smp-sheet-main {
+  grid-row: 3;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: clamp(10px, 1.8vh, 18px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.sd-music-player .smp-sheet-stage {
+  touch-action: pan-y;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+.sd-music-player .smp-sheet-art {
+  position: relative;
+  width: var(--smp-art);
+  height: var(--smp-art);
+  max-width: 100%;
+  aspect-ratio: 1;
+  border-radius: clamp(8px, 2vw, 12px);
+  overflow: hidden;
+  background: var(--smp-panel);
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.55);
+  transition: transform 0.12s ease-out;
+}
+.sd-music-player .smp-sheet-stage.swiping .smp-sheet-art {
+  transition: none;
+}
+.sd-music-player .smp-sheet-art img,
+.sd-music-player .smp-sheet-art video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sd-music-player .smp-sheet-art video {
+  opacity: 0;
+  transition: opacity 0.85s ease;
+}
+.sd-music-player .smp-swipe-hint {
+  margin-top: clamp(4px, 1vh, 10px);
+  color: var(--smp-muted);
+  font-size: clamp(11px, 2.8vw, 12px);
+  letter-spacing: 0.04em;
+}
+
+.sd-music-player .smp-sheet-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: clamp(6px, 1.2vh, 12px);
+  width: min(560px, 100%);
+  margin: 0 auto;
+  flex: 0 0 auto;
+  min-height: 0;
+  padding-bottom: 2px;
+}
+.sd-music-player .smp-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.sd-music-player .smp-meta-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sd-music-player .smp-like-btn {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--smp-muted);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sd-music-player .smp-like-btn.on {
+  color: #22c55e;
+}
+.sd-music-player .smp-sheet-title {
+  font-size: clamp(18px, 5.4vw, 24px);
+  font-weight: 780;
+  text-align: left;
+  line-height: 1.2;
+  margin: 0;
+  padding: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  position: relative;
+  z-index: 1;
+  color: #fff;
+}
+.sd-music-player .smp-sheet-sub,
+.sd-music-player .smp-sheet-now,
+.sd-music-player .smp-sheet-next {
+  color: var(--smp-muted);
+  text-align: left;
+  font-size: clamp(13px, 3.4vw, 15px);
+}
+.sd-music-player button.smp-nav-link {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: inherit;
+  padding: 0;
+}
+.sd-music-player button.smp-nav-link.is-nav {
+  cursor: pointer;
+  text-decoration: none;
+}
+.sd-music-player button.smp-nav-link.is-nav:active {
+  color: #bfdbfe;
+}
+.sd-music-player .smp-sheet-now { color: #93c5fd; }
+
+.sd-music-player .smp-action-row {
+  display: none;
+}
+.sd-music-player .smp-chip {
+  min-height: 40px;
+  padding: 0 clamp(10px, 2.5vw, 14px);
+  border: 1px solid var(--smp-line);
+  border-radius: 999px;
+  background: var(--smp-panel);
+  color: var(--smp-text);
+  font-size: clamp(12px, 3vw, 13px);
+  font-weight: 650;
+  cursor: pointer;
+}
+.sd-music-player .smp-chip.on {
+  background: var(--smp-accent-soft);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #bfdbfe;
+}
+.sd-music-player .smp-chip[data-smp-fav].on {
+  color: var(--smp-danger);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.sd-music-player .smp-lyrics,
+.sd-music-player .smp-queue-panel,
+.sd-music-player .smp-info-panel {
+  max-height: min(28vh, 220px);
+  overflow: auto;
+  border-radius: 14px;
+  background: rgba(20, 24, 32, 0.9);
+  border: 1px solid var(--smp-line);
+  padding: 12px 14px;
+  flex: 0 1 auto;
+}
+.sd-music-player .smp-lyrics-status {
+  color: var(--smp-muted);
+  text-align: center;
+  font-size: 13px;
+}
+.sd-music-player .smp-lyrics-scroll p {
+  margin: 0 0 10px;
+  color: var(--smp-muted);
+  text-align: center;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+.sd-music-player .smp-lyrics-scroll p.active {
+  color: #fff;
+  font-weight: 700;
+  transform: scale(1.04);
+}
+.sd-music-player .smp-queue-panel ul,
+.sd-music-player .smp-info-panel p {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.sd-music-player .smp-queue-panel li {
+  padding: 8px 0;
+  border-top: 1px solid var(--smp-line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sd-music-player .smp-queue-panel {
+  max-height: min(42vh, 360px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.sd-music-player .smp-q-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--smp-muted);
+}
+.sd-music-player .smp-q-toolbar button {
+  background: transparent;
+  border: 1px solid var(--smp-line);
+  color: #e8eaef;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.sd-music-player .smp-q-autoplay {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.sd-music-player .smp-q-sec {
+  margin-top: 10px;
+}
+.sd-music-player .smp-q-sec h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--smp-muted);
+  font-weight: 700;
+}
+.sd-music-player .smp-queue-panel li {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+.sd-music-player .smp-queue-panel li.smp-q-tappable {
+  cursor: pointer;
+  border-radius: 10px;
+  padding-left: 8px;
+  padding-right: 4px;
+  margin: 0 -4px;
+}
+.sd-music-player .smp-queue-panel li.smp-q-tappable:active,
+.sd-music-player .smp-queue-panel li.smp-q-tappable:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.sd-music-player .smp-queue-panel li.smp-q-tappable .smp-q-main strong {
+  text-decoration: underline;
+  text-decoration-color: rgba(147, 197, 253, 0.35);
+  text-underline-offset: 2px;
+}
+.sd-music-player .smp-queue-panel li.smp-q-swiping {
+  background: rgba(239, 68, 68, 0.12);
+}
+.sd-music-player .smp-queue-panel small,
+.sd-music-player .smp-info-panel a {
+  color: var(--smp-muted);
+}
+.sd-music-player .smp-q-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.sd-music-player .smp-q-main strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f3f4f6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sd-music-player .smp-q-now strong {
+  color: #93c5fd;
+}
+.sd-music-player .smp-q-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.sd-music-player .smp-q-actions button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 12px;
+}
+.sd-music-player .smp-info-panel a { color: #93c5fd; }
+
+.sd-music-player .smp-seek {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--smp-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+}
+.sd-music-player .smp-seek-times {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 1px;
+  font-size: 11px;
+  opacity: 0.9;
+}
+.sd-music-player .smp-seek input[type="range"] {
+  width: 100%;
+  accent-color: #fff;
+  height: 18px;
+  margin: 0;
+}
+
+.sd-music-player .smp-sheet-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: clamp(4px, 1.5vw, 10px);
+  margin-top: 2px;
+  padding: 0 2px;
+  flex-shrink: 0;
+  width: 100%;
+}
+.sd-music-player .smp-sheet-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: clamp(44px, 11vw, 52px);
+  min-height: clamp(44px, 11vw, 52px);
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--smp-text);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sd-music-player .smp-sheet-controls .smp-main {
+  background: #fff;
+  color: #0a0c10;
+  min-width: clamp(60px, 15vw, 72px);
+  min-height: clamp(60px, 15vw, 72px);
+  border-radius: 999px;
+  box-shadow: none;
+  font-size: 22px;
+}
+.sd-music-player .smp-sheet-controls .smp-mode-btn {
+  font-size: 18px;
+  background: transparent;
+  border: 0;
+  opacity: 0.95;
+}
+.sd-music-player .smp-sheet-controls .smp-mode-btn.is-disabled-soft {
+  opacity: 0.45;
+}
+.sd-music-player .smp-sheet-controls .smp-mode-btn[data-mode="shuffle"],
+.sd-music-player .smp-sheet-controls .smp-mode-btn[data-mode="smart-shuffle"],
+.sd-music-player .smp-sheet-controls .smp-mode-btn[data-mode="repeat-one"],
+.sd-music-player .smp-sheet-controls .smp-mode-btn[data-mode="repeat-all"] {
+  color: #22c55e;
+}
+.sd-music-player .smp-sheet-controls .smp-queue-btn {
+  font-size: 18px;
+}
+.sd-music-player .smp-sheet-art video.show {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.sd-music-player .smp-video-fs {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sd-music-player .smp-video-fs[hidden] {
+  display: none !important;
+}
+.sd-music-player .smp-video-fs video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.sd-music-player .smp-video-fs-close {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  right: calc(10px + env(safe-area-inset-right, 0px));
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(20, 24, 32, 0.85);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+}
+/* volcontrol row removed — keep dock/sheet spacing tight under transport */
+.sd-music-player .smp-sheet-controls + .smp-lyrics,
+.sd-music-player .smp-sheet-controls + .smp-queue-panel,
+.sd-music-player .smp-sheet-controls + .smp-info-panel {
+  margin-top: 6px;
+}
+
+/* Dock is flex sibling — only a small content end-pad, never a 96px void above dock */
+#musicCatalog.music-home:has(.sd-music-player.show) .music-home-body {
+  padding-bottom: 0;
+}
+#musicCatalog.music-home:has(.sd-music-player.show) .sd-music-listen .ml-body,
+#musicCatalog.music-home:has(.sd-music-player.show) .sd-music-radio .mr-body,
+#musicCatalog.music-home:has(.sd-music-player.show) .sd-music-radio .mr-main,
+#musicCatalog.music-home:has(.sd-music-player.show) .sd-music-home .mh-body {
+  padding-bottom: 12px;
+}
+/* Expanded: player chrome is fullscreen sheet — collapse dock slot in catalog flex */
+#musicCatalog.music-home.open > .sd-music-player.show.expanded {
+  flex: 0 0 0;
+  height: 0;
+  min-height: 0;
+  overflow: visible;
+}
+
+/* Short portrait phones (S21-class): keep art large but leave chrome room */
+@media (max-height: 780px) and (orientation: portrait) {
+  .sd-music-player .smp-sheet {
+    --smp-art: min(82vw, calc(var(--smp-vh) * 0.38), 340px);
+  }
+  .sd-music-player .smp-swipe-hint { display: none; }
+  .sd-music-player .smp-lyrics,
+  .sd-music-player .smp-queue-panel,
+  .sd-music-player .smp-info-panel {
+    max-height: min(22vh, 160px);
+  }
+}
+
+@media (max-height: 640px) and (orientation: portrait) {
+  .sd-music-player .smp-sheet {
+    --smp-art: min(70vw, calc(var(--smp-vh) * 0.32), 260px);
+  }
+  .sd-music-player .smp-dial-readout span { font-size: 16px; }
+  .sd-music-player .smp-sheet-controls .smp-main {
+    min-width: 56px;
+    min-height: 56px;
+  }
+}
+
+/* Landscape / wide: art beside meta — fills horizontal void from screenshot */
+@media (orientation: landscape) and (max-height: 560px),
+       (min-aspect-ratio: 4/3) and (max-height: 720px) {
+  .sd-music-player .smp-sheet {
+    --smp-art: min(42vh, 42vw, 280px);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    overflow: hidden;
+  }
+  .sd-music-player .smp-sheet-main {
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: center;
+    gap: clamp(12px, 3vw, 28px);
+    overflow: hidden;
+  }
+  .sd-music-player .smp-sheet-stage {
+    flex: 0 0 auto;
+    justify-content: center;
+    max-width: 46%;
+  }
+  .sd-music-player .smp-sheet-body {
+    flex: 1 1 52%;
+    max-width: min(520px, 54vw);
+    margin: 0;
+    justify-content: center;
+    overflow: auto;
+  }
+  .sd-music-player .smp-sheet-title,
+  .sd-music-player .smp-sheet-sub,
+  .sd-music-player .smp-sheet-now,
+  .sd-music-player .smp-sheet-next {
+    text-align: left;
+  }
+  .sd-music-player .smp-sheet-controls { justify-content: space-between; }
+  .sd-music-player .smp-swipe-hint { display: none; }
+  .sd-music-player .smp-lyrics,
+  .sd-music-player .smp-queue-panel,
+  .sd-music-player .smp-info-panel {
+    max-height: min(36vh, 180px);
+  }
+}
+
+@media (orientation: landscape) and (max-height: 420px) {
+  .sd-music-player .smp-sheet {
+    --smp-art: min(70vh, 34vw, 200px);
+    --smp-pad-y: 4px;
+  }
+  .sd-music-player .smp-dial-hint { margin: 0; }
+  .sd-music-player .smp-dial-arrow { min-width: 40px; min-height: 40px; }
+  .sd-music-player .smp-action-row .smp-chip { min-height: 36px; }
+  .sd-music-player .smp-sheet-controls button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .sd-music-player .smp-sheet-controls .smp-main {
+    min-width: 52px;
+    min-height: 52px;
+  }
+}
+
+/* Tablet / desktop portrait-tall */
+@media (min-width: 768px) and (min-height: 900px) and (orientation: portrait) {
+  .sd-music-player .smp-sheet {
+    --smp-art: min(52vw, 420px, calc(var(--smp-vh) * 0.4));
+  }
+}
+
+/* Desktop / laptop wide: art | meta+queue column — fill height, no center void */
+@media (min-width: 1024px) and (min-aspect-ratio: 1/1) {
+  .sd-music-player .smp-sheet {
+    --smp-art: min(44vh, 380px);
+    overflow: hidden;
+  }
+  .sd-music-player .smp-sheet-main {
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: center;
+    gap: clamp(16px, 2.5vw, 36px);
+    max-width: min(1100px, 96vw);
+    margin: 0 auto;
+    width: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .sd-music-player .smp-sheet-stage {
+    flex: 0 0 auto;
+    max-width: 44%;
+    justify-content: center;
+  }
+  .sd-music-player .smp-swipe-hint { display: none; }
+  .sd-music-player .smp-sheet-body {
+    flex: 1 1 56%;
+    max-width: min(560px, 58vw);
+    margin: 0;
+    justify-content: flex-start;
+    overflow: hidden;
+    min-height: 0;
+    height: 100%;
+  }
+  .sd-music-player .smp-sheet-title,
+  .sd-music-player .smp-sheet-sub,
+  .sd-music-player .smp-sheet-now,
+  .sd-music-player .smp-sheet-next {
+    text-align: left;
+  }
+  .sd-music-player .smp-action-row { justify-content: flex-start; }
+  .sd-music-player .smp-sheet-controls { justify-content: flex-start; }
+  /* Queue grows into remaining column height (art+queue landscape) */
+  .sd-music-player .smp-queue-panel:not([hidden]) {
+    flex: 1 1 auto;
+    min-height: 140px;
+    max-height: none;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .sd-music-player .smp-lyrics:not([hidden]),
+  .sd-music-player .smp-info-panel:not([hidden]) {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow: auto;
+  }
+}
+
+/* 10-foot: Music sheet overlaying TV / large living-room displays */
+@media (min-width: 1280px) and (min-height: 720px) {
+  #musicCatalog.music-home.open .sd-music-player .smp-sheet-controls button,
+  #musicCatalog.music-home.open .sd-music-player .smp-icon-btn,
+  #musicCatalog.music-home.open .sd-music-player .smp-dial-arrow {
+    min-width: 56px;
+    min-height: 56px;
+  }
+  #musicCatalog.music-home.open .sd-music-player .smp-sheet-controls .smp-main {
+    min-width: 68px;
+    min-height: 68px;
+    font-size: 26px;
+  }
+  #musicCatalog.music-home.open .sd-music-player .smp-action-row .smp-chip {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 15px;
+  }
+}

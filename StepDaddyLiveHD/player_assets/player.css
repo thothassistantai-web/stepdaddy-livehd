@@ -183,12 +183,75 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cinema-time { margin: 4px 0 0; font-size: 11px; color: rgba(255,255,255,.4);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Live edge chrome: ephemeral LIVE pill only (Q3 tap replaces jump-to-live) */
+    .live-edge-chrome {
+      position: absolute;
+      top: max(10px, env(safe-area-inset-top, 10px));
+      left: max(10px, env(safe-area-inset-left, 10px));
+      z-index: 11;
+      display: none;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .live-edge-chrome:not([hidden]) { display: inline-flex; }
+    .tv-root.overlay-playback .live-edge-chrome,
+    .tv-root.trailer-active .live-edge-chrome { display: none !important; }
+    /* Default hidden via opacity. Quiet show (.is-on.is-quiet); fade-out when class removed.
+       No pulse/blink — owner feedback 20260909z. Jump bubble removed 20260909aa. */
+    .live-now-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      min-height: 24px; padding: 3px 8px; border-radius: 5px;
+      background: rgba(185, 28, 58, .72); color: rgba(255,255,255,.88);
+      font: 600 10px/1 system-ui, -apple-system, sans-serif;
+      letter-spacing: .06em; text-transform: uppercase;
+      box-shadow: 0 2px 8px rgba(0,0,0,.22);
+      opacity: 0;
+      transform: none;
+      transition: opacity .38s ease;
+      pointer-events: none;
+    }
+    .live-now-pill.is-on {
+      opacity: .78;
+      transition: opacity .38s ease;
+    }
+    .live-now-pill.is-on.is-quiet { opacity: .62; }
+    .live-now-pill::before {
+      content: ""; width: 5px; height: 5px; border-radius: 50%;
+      background: rgba(255,255,255,.85); box-shadow: none;
+      animation: none !important;
+    }
+    @keyframes liveNowPulse {
+      0%, 100% { box-shadow: none; opacity: 1; }
+    }
+    /* Party/cast corner conflicts handled in JS (livePillBlockedByChrome) */
+    .hdr-skel {
+      display: inline-block; vertical-align: middle;
+      height: 11px; width: min(58vw, 180px); max-width: 70%;
+      border-radius: 6px; margin-left: 2px;
+      background: linear-gradient(90deg,
+        rgba(255,255,255,.06) 0%, rgba(255,255,255,.16) 45%, rgba(255,255,255,.06) 100%);
+      background-size: 200% 100%;
+      animation: hdrSkelShine 1.05s linear infinite;
+    }
+    @keyframes hdrSkelShine {
+      0% { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
+    .hdr-onair.is-skeleton .hdr-sep { opacity: .35; }
     .epg-panel { flex: 0 0 var(--epg-h); max-height: var(--epg-h); min-height: 0; z-index: 2;
       display: flex; flex-direction: column; background: var(--epg-bg);
       backdrop-filter: var(--epg-blur, blur(10px)); border-top: 1px solid var(--epg-border, rgba(255,255,255,.12));
       box-shadow: var(--epg-shadow, none); overflow: hidden;
       transition: flex-basis var(--guide-transition), max-height var(--guide-transition),
                   opacity var(--guide-transition), transform var(--guide-transition); }
+    .tv-root:not(.guide-collapsed) .epg-panel {
+      will-change: flex-basis, max-height, transform;
+    }
+    .epg-row, .prog-row {
+      content-visibility: auto;
+      contain-intrinsic-size: auto var(--row-h, 52px);
+    }
     .tv-root.guide-scrolling .epg-panel {
       backdrop-filter: none; -webkit-backdrop-filter: none; }
     .tv-root.guide-collapsed .epg-panel {
@@ -198,10 +261,36 @@
       border-bottom: 1px solid var(--top-bar-border, var(--line)); min-height: 48px; flex-shrink: 0;
       background: var(--top-bar-bg, transparent); }
     .tv-root[data-theme="cinema"] .top-bar { min-height: 44px; padding: 6px 16px; }
-    .top-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
+    .top-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; min-width: 0; }
     .action-group { display: inline-flex; align-items: center; gap: 2px; padding: 3px;
       border-radius: 12px; background: var(--action-group-bg); border: 1px solid var(--action-group-border); }
+    /* Horizontally scrollable icon pill (all themes) — hide scrollbar clutter */
+    .action-group-tools {
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-x: contain;
+      scroll-snap-type: x proximity;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .action-group-tools::-webkit-scrollbar { display: none; width: 0; height: 0; }
+    .action-group-tools > .btn-icon {
+      flex: 0 0 auto;
+      scroll-snap-align: center;
+    }
+    .action-group-view { flex-shrink: 0; }
     .tv-root[data-theme="broadcast"] .action-group { gap: 0; padding: 0; border-radius: 4px; overflow: hidden; }
+    /* Tools strip must scroll even when broadcast clips the group; view keeps ⋯ unclipped */
+    .tv-root[data-theme="broadcast"] .action-group-tools {
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+    /* Keep ⋯ dropdown unclipped on broadcast (menu is position:fixed; wrap must not create a clip root) */
+    .tv-root[data-theme="broadcast"] .action-group-view { overflow: visible; }
     .tv-root[data-theme="broadcast"] .action-group .btn-icon { border-right: 1px solid #333; }
     .tv-root[data-theme="broadcast"] .action-group .btn-icon:last-child { border-right: 0; }
     .action-divider { width: 1px; height: 26px; background: rgba(255,255,255,.1); flex-shrink: 0; }
@@ -210,11 +299,26 @@
       border-radius: var(--btn-icon-radius); display: inline-flex;
       align-items: center; justify-content: center; background: var(--btn-icon-bg); color: #e8edf5;
       cursor: pointer; text-decoration: none; touch-action: manipulation; padding: 0;
-      transition: background .15s, color .15s; }
+      transition: background .15s, color .15s; min-width: var(--btn-icon-size); min-height: var(--btn-icon-size);
+      position: relative; }
     .btn-icon:hover, .btn-icon:focus-visible { background: var(--btn-icon-hover); outline: none; }
     .btn-icon.active { color: var(--accent); }
     .btn-icon svg { width: 18px; height: 18px; display: block; }
     .tv-root[data-theme="cinema"] .btn-icon svg { width: 15px; height: 15px; }
+    /* Expand visual 32–38px icons to ≥44px tap targets on phones / coarse pointers */
+    @media (max-width: 640px), (pointer: coarse) {
+      .btn-icon {
+        --btn-icon-size: 44px;
+        width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+      }
+      .tv-root[data-theme="cinema"] .btn-icon svg,
+      .btn-icon svg { width: 18px; height: 18px; }
+      .action-group { gap: 0; padding: 2px; }
+      .action-group-tools { max-width: calc(100vw - 72px); }
+      .action-group-tools > .btn-icon {
+        width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+      }
+    }
     .btn-icon .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
       overflow: hidden; clip: rect(0,0,0,0); border: 0; }
     .top-bar .hdr-poster { width: 36px; height: 54px; object-fit: cover; border-radius: 6px;
@@ -430,8 +534,13 @@
       position: fixed; inset: 0; z-index: 58; height: 100dvh; }
     .tv-root.vod-hls-playing .bg-video {
       visibility: visible !important; z-index: 1; }
+    /* pe:none keeps embed/trailer iframes from eating live chrome; HLS mode must
+       receive taps so showHlsChrome / scrub / back can surface (YES Network bleed
+       fix left the layer inert and center taps hit #v with no chrome feedback). */
     .tv-root.vod-hls-playing .trailer-layer {
       background: transparent; pointer-events: none; z-index: 59; }
+    .tv-root.vod-hls-playing .trailer-layer.hls-mode {
+      pointer-events: auto; }
     .tv-root.vod-hls-playing .trailer-back-btn,
     .tv-root.vod-hls-playing .vod-ep-chrome,
     .tv-root.vod-hls-playing .vod-ep-nextup,
@@ -470,6 +579,9 @@
     .trailer-layer.hls-mode .trailer-frame-wrap { display: none; }
     .tv-root.overlay-playback .trailer-layer {
       position: fixed; inset: 0; z-index: 55; width: 100vw; height: 100vh; max-height: none; }
+    /* Native VOD HLS: keep trailer (chrome/hotzone) above the video stack */
+    .tv-root.vod-hls-playing.overlay-playback .trailer-layer.hls-mode {
+      z-index: 60; }
     .tv-root.overlay-playback .vod-picker-backdrop { z-index: 70; }
     .tv-root.overlay-playback .vod-picker { z-index: 71; }
     .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -499,8 +611,23 @@
       opacity: 0; pointer-events: none; transition: opacity .28s ease; }
     .vod-catalog-backdrop.open { opacity: 1; pointer-events: auto; }
     .vod-catalog { position: fixed; inset: 0; z-index: 47; display: flex; flex-direction: column;
-      background: rgba(8,10,14,.98); transform: translateY(100%); transition: transform .32s ease; }
-    .vod-catalog.open { transform: translateY(0); }
+      /* Fully opaque — 0.98 let live HDR ("YES Network USA") ghost through the sheet */
+      background: #080a0e; transform: translateY(100%); transition: transform .32s ease;
+      /* Closed/peeked sheet must not eat VOD player taps after Play */
+      pointer-events: none; }
+    .vod-catalog.open { transform: translateY(0); pointer-events: auto; }
+    /* Hide live channel chrome while VOD sheet / native VOD playback owns the viewport.
+       Do NOT blanket-hide on overlay-active/trailer-active alone — live Clappr embed also
+       sets those classes and still needs collapsed ⋯ / search chrome (live-embed-active). */
+    .tv-root.vod-catalog-open .collapsed-chrome,
+    .tv-root.vod-catalog-open .cinema-overlay,
+    .tv-root.vod-hls-playing .collapsed-chrome,
+    .tv-root.overlay-active:not(.live-embed-active) .collapsed-chrome,
+    .tv-root.trailer-active:not(.live-embed-active) .collapsed-chrome {
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
     .vod-catalog-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px;
       border-bottom: 1px solid var(--line); flex-shrink: 0; }
     .vod-catalog-head h2,
@@ -535,6 +662,23 @@
     .vod-catalog-body { flex: 1; overflow: auto; padding: 12px 14px 24px; -webkit-overflow-scrolling: touch; }
     .vod-section { margin-bottom: 22px; }
     .vod-section h3 { margin: 0 0 10px; font-size: 14px; font-weight: 700; color: #e8edf5; }
+    .vod-section-head {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+      width: 100%; margin: 0 0 10px; padding: 0; border: 0; background: transparent;
+      color: #e8edf5; cursor: pointer; text-align: left; font: inherit;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .vod-section-head:hover .vod-section-head-title,
+    .vod-section-head:focus-visible .vod-section-head-title { color: #93c5fd; }
+    .vod-section-head:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; border-radius: 6px; }
+    .vod-section-head-title { font-size: 14px; font-weight: 700; line-height: 1.2; }
+    .vod-section-see-all {
+      flex-shrink: 0; font-size: 12px; font-weight: 600; color: #93c5fd; opacity: .85;
+      display: inline-flex; align-items: center; gap: 2px; white-space: nowrap;
+    }
+    .vod-section-head:hover .vod-section-see-all,
+    .vod-section-head:focus-visible .vod-section-see-all { opacity: 1; }
+    .vod-section-chevron { font-size: 16px; line-height: 1; font-weight: 700; }
     .vod-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
     .vod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; }
     .vod-card { flex: 0 0 100px; width: 100px; border: 0; padding: 0; background: transparent; cursor: pointer;
@@ -775,7 +919,8 @@
     .vod-crew-row .name { font-weight: 600; color: #e8edf5; }
     .vod-detail-related { margin-top: 4px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.06); }
     .vod-detail-related .vod-section { margin-bottom: 20px; }
-    .vod-detail-related .vod-section h3 { font-size: 13px; font-weight: 700; color: #c5cdd8; margin: 0 0 10px; }
+    .vod-detail-related .vod-section h3,
+    .vod-detail-related .vod-section-head-title { font-size: 13px; font-weight: 700; color: #c5cdd8; margin: 0; }
     .vod-episodes { display: flex; flex-direction: column; gap: 6px; }
     .vod-ep-row {
       display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,.06);
@@ -841,7 +986,7 @@
       bottom: max(4px, env(safe-area-inset-bottom, 4px)); left: 50%;
       transform: translateX(-50%); z-index: 10;
       border: 0; border-radius: 10px 10px 4px 4px;
-      min-width: 44px; min-height: 28px; padding: 4px 14px 6px;
+      min-width: 44px; min-height: 44px; padding: 8px 16px 10px;
       font-size: 12px; font-weight: 500; letter-spacing: .02em;
       color: rgba(255,255,255,.55); background: rgba(0,0,0,.28);
       backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
@@ -969,9 +1114,43 @@
     .epg-body.cat-drawer-open .cat-drawer-scrim {
       opacity: 1; pointer-events: auto;
     }
+    /* Laptop pull tab — frosted ghost; click/drag + key C (hover/focus brightens) */
+    .cat-drawer-tab {
+      position: absolute; left: 0; top: 42%; transform: translateY(-50%);
+      z-index: 9; width: 13px; min-height: 48px; padding: 6px 0;
+      display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+      border: 1px solid rgba(255,255,255,.06); border-left: 0;
+      border-radius: 0 8px 8px 0;
+      background: rgba(14, 16, 22, .28); color: rgba(255,255,255,.42);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none;
+      box-shadow: 2px 0 8px rgba(0,0,0,.1);
+      opacity: .42;
+      transition: left .22s ease, background .15s, color .15s, opacity .15s, border-color .15s, box-shadow .15s;
+    }
+    .cat-drawer-tab:hover, .cat-drawer-tab:focus-visible {
+      background: rgba(18, 22, 28, .52); color: rgba(255,255,255,.88);
+      opacity: .88; border-color: rgba(255,255,255,.14);
+      box-shadow: 3px 0 10px rgba(0,0,0,.18);
+      outline: none;
+    }
+    .cat-drawer-tab-grip {
+      width: 2px; height: 14px; border-radius: 999px;
+      background: rgba(255,255,255,.2);
+    }
+    .cat-drawer-tab-icon {
+      width: 10px; height: 10px; display: block; opacity: .65;
+    }
+    .epg-body.cat-drawer-open .cat-drawer-tab,
+    .cat-drawer-tab.is-open {
+      left: var(--cat-drawer-w, 168px);
+    }
     .tv-root[data-theme="broadcast"] .cat-drawer { background: #0a0a0a; }
     .tv-root[data-theme="broadcast"] .cat-drawer-item.active {
       outline: 1px solid #fff; outline-offset: -1px;
+    }
+    .tv-root[data-theme="broadcast"] .cat-drawer-tab {
+      background: rgba(0,0,0,.32); border-color: rgba(255,255,255,.1); border-radius: 0 4px 4px 0;
     }
     .ch-scroll { width: var(--ch-w); flex-shrink: 0; overflow: hidden; border-right: 1px solid var(--line);
       position: relative; contain: strict; isolation: isolate; z-index: 4; touch-action: none; cursor: grab;
@@ -1057,6 +1236,21 @@
       display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       font-weight: inherit; line-height: 1.2;
     }
+    .prog-cell .prog-live-dot {
+      display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+      background: rgba(255,255,255,.45); margin-right: 5px; vertical-align: 1px;
+      flex-shrink: 0; animation: none !important; box-shadow: none !important;
+      opacity: .7;
+    }
+    .prog-cell.live .prog-title { display: inline; }
+    .prog-cell.live {
+      animation: none !important;
+    }
+    .prog-cell.live *,
+    .prog-cell.live::before,
+    .prog-cell.live::after {
+      animation: none !important;
+    }
     .prog-cell .prog-time {
       display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       font-size: 10px; font-weight: 500; opacity: .62; line-height: 1.1;
@@ -1065,12 +1259,15 @@
     .tv-root[data-theme="glass"] .prog-cell { border: 1px solid rgba(255,255,255,.06); }
     .tv-root[data-theme="broadcast"] .prog-cell { border: 1px solid #333; font-size: 10px; font-weight: 600; top: 4px; bottom: 4px; }
     .prog-cell.live { background: var(--prog-live-bg); color: var(--prog-live-color); }
-    .tv-root[data-theme="glass"] .prog-cell.live { border-color: rgba(96,165,250,.4); box-shadow: 0 0 20px rgba(59,130,246,.2); }
-    .tv-root[data-theme="broadcast"] .prog-cell.live { font-weight: 800; border-color: #fff; }
+    .tv-root[data-theme="glass"] .prog-cell.live {
+      border-color: rgba(255,255,255,.12); box-shadow: none; opacity: .92;
+    }
+    .tv-root[data-theme="broadcast"] .prog-cell.live { font-weight: 700; border-color: #555; }
     .tv-root[data-theme="cinema"] .prog-cell { background: transparent; color: rgba(255,255,255,.45); font-size: 11px; top: 0; bottom: 0; border-radius: 0; }
     .tv-root[data-theme="cinema"] .prog-cell.focused { color: rgba(255,255,255,.9); background: transparent; box-shadow: none; border: 0; font-weight: 400; }
-    .tv-root[data-theme="cinema"] .prog-cell.live { background: transparent; color: rgba(255,255,255,.45); }
-    .tv-root[data-theme="cinema"] .prog-cell.focused.live { color: rgba(255,255,255,.9); }
+    .tv-root[data-theme="cinema"] .prog-cell.live { background: transparent; color: rgba(255,255,255,.42); }
+    .tv-root[data-theme="cinema"] .prog-cell.focused.live { color: rgba(255,255,255,.85); }
+    .tv-root[data-theme="cinema"] .prog-cell.live .prog-live-dot { background: rgba(255,255,255,.35); }
     .prog-cell.focused { background: var(--focus-bg); color: var(--focus-fg); font-weight: 600;
       border-color: rgba(0,0,0,.08); z-index: 2; box-shadow: 0 0 0 1px rgba(255,255,255,.35); }
     .tv-root[data-theme="cinema"] .prog-cell.focused { box-shadow: none; }
@@ -1219,8 +1416,10 @@
     .vod-card:hover .meta, .vod-card:focus-visible .meta { opacity: 1; }
     .vod-card .title { opacity: .9; }
     .vod-card:hover .title, .vod-card:focus-visible .title { opacity: 1; }
-    .vod-section h3 { opacity: .82; }
-    .vod-section:hover h3 { opacity: 1; }
+    .vod-section h3,
+    .vod-section-head-title { opacity: .82; }
+    .vod-section:hover h3,
+    .vod-section:hover .vod-section-head-title { opacity: 1; }
     .result-row .sub, .result-row .meta-row, .result-row .aside { opacity: .78; }
     .result-row:hover .sub, .result-row:hover .meta-row, .result-row:hover .aside,
     .result-row:focus-visible .sub, .result-row:focus-visible .meta-row { opacity: 1; }
@@ -1308,6 +1507,8 @@
     .tv-root[data-calm="0"] .vod-card .meta,
     .tv-root[data-calm="0"] .vod-card .title,
     .tv-root[data-calm="0"] .vod-section h3,
+    .tv-root[data-calm="0"] .vod-section-head-title,
+    .tv-root[data-calm="0"] .vod-section-see-all,
     .tv-root[data-calm="0"] .result-row .sub,
     .tv-root[data-calm="0"] .result-row .meta-row,
     .tv-root[data-calm="0"] .result-row .aside,
@@ -1331,23 +1532,422 @@
     .tv-root[data-calm="0"] .collapsed-chrome .chrome-hint,
     .tv-root[data-calm="0"] .xray-head .badge { opacity: 1 !important; pointer-events: auto !important; transform: none !important; }
 
+    /* Music home slide-up — dense mobile sheet, nearly full viewport */
+    .music-home {
+      display: flex;
+      flex-direction: column;
+      /* Bottom-anchor so closed translateY(100%) clears the viewport. */
+      top: auto;
+      bottom: 0;
+      height: min(98dvh, 100%);
+      max-height: min(98dvh, 100%);
+      overflow: hidden;
+      overscroll-behavior: none;
+      overscroll-behavior-y: contain;
+      touch-action: pan-y;
+      contain: layout style;
+    }
+    /* Header: Music | [Home] [Radio] [Listen] …… ✕ */
+    .music-home .music-home-head.vod-catalog-head {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      min-height: 44px;
+      flex-shrink: 0;
+    }
+    .music-home .music-home-head .vod-brand,
+    .music-home .music-home-head .music-brand {
+      flex: 0 0 auto;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    /* Subtle separator after Music title */
+    .music-home .music-home-head .music-brand::after {
+      content: "";
+      display: inline-block;
+      width: 1px;
+      height: 16px;
+      margin-left: 10px;
+      vertical-align: -2px;
+      background: rgba(255, 255, 255, 0.14);
+    }
+    .music-home .music-home-head .music-home-tabs {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap !important;
+      align-items: center;
+      gap: 6px;
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      padding: 0;
+      border: 0;
+      border-bottom: 0;
+    }
+    .music-home .music-home-head .music-home-tabs::-webkit-scrollbar { display: none; }
+    .music-home .music-home-head .music-home-tab {
+      flex: 0 0 auto;
+      appearance: none;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.05);
+      color: #c8d0dc;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font: 600 12px/1.2 inherit;
+      cursor: pointer;
+      touch-action: manipulation;
+      min-height: 40px;
+      min-width: 0;
+      white-space: nowrap;
+    }
+    .music-home .music-home-head .music-home-tab.active {
+      background: rgba(37, 99, 235, 0.35);
+      border-color: rgba(59, 130, 246, 0.45);
+      color: #fff;
+    }
+    .music-home .music-home-head #closeMusicCatalog {
+      flex: 0 0 auto;
+      margin-left: auto;
+      min-width: 40px;
+      min-height: 40px;
+      width: 40px;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .music-unified-search-wrap {
+      flex: 0 0 auto;
+      padding: 4px 12px 0;
+    }
+    /* Keep Music search bar fixed — typing must not reflow header/chips */
+    .music-unified-search-wrap.sd-music-search,
+    #musicUnifiedSearch.sd-music-search {
+      --ms-bar-h: 40px;
+    }
+    .music-unified-search-wrap .ms-form {
+      height: 40px;
+      min-height: 40px;
+      max-height: 40px;
+      align-items: center;
+    }
+    .music-unified-search-wrap .ms-input-wrap,
+    .music-unified-search-wrap .ms-input-wrap input,
+    .music-unified-search-wrap .ms-go {
+      height: 40px;
+      min-height: 40px;
+      max-height: 40px;
+      box-sizing: border-box;
+    }
+    .music-unified-search-wrap .ms-input-wrap {
+      position: relative;
+      display: block;
+      overflow: hidden;
+    }
+    .music-unified-search-wrap .ms-clear,
+    .music-unified-search-wrap .ms-mic {
+      position: absolute !important;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 2;
+    }
+    .music-unified-search-wrap .ms-mic {
+      right: 2px;
+    }
+    .music-unified-search-wrap .ms-clear {
+      right: 40px;
+    }
+    .music-unified-search-wrap .ms-input-wrap.no-mic .ms-clear {
+      right: 4px;
+    }
+    .music-unified-search-wrap .ms-go {
+      width: 72px;
+      min-width: 72px;
+      max-width: 72px;
+      padding: 0 10px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 72px;
+    }
+    .music-home-body.vod-catalog-body {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      align-content: start;
+      /* Player dock is a flex sibling — do NOT pad for it (was 96px black bar). */
+      padding: 0;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      overscroll-behavior: none;
+      overscroll-behavior-y: contain;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
+      contain: layout style;
+    }
+    .music-home-panel {
+      background: transparent; border: 0; border-radius: 0;
+      padding: 0; margin: 0;
+      flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+    }
+    .music-home-panel h3 { margin: 0 0 10px; font-size: 14px; font-weight: 700; color: #e8edf5; }
+    .music-home-lede { margin: 0 0 8px; color: var(--muted); font-size: 14px; line-height: 1.45; }
+    .music-home-muted { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+    /* Legacy class hooks (tabs now live in header) */
+    .music-home-tabs { display: flex; gap: 6px; flex-shrink: 0; }
+    .music-home-tab {
+      appearance: none; border: 0; background: rgba(255,255,255,.06); color: #c8d0dc;
+      padding: 6px 12px; border-radius: 999px; font: 600 13px/1.2 inherit; cursor: pointer;
+      touch-action: manipulation; min-height: 40px; min-width: 64px;
+    }
+    .music-home-tab.active { background: rgba(37,99,235,.35); color: #fff; }
+    .music-home-panel[hidden] { display: none !important; }
+    /* Focus chips only — single horizontal scroll (no Home/Radio/Listen duplicate) */
+    .music-chip-rail {
+      --music-chip-fade-l: 0px;
+      --music-chip-fade-r: 0px;
+      position: relative;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap !important;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px 10px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-x: contain;
+      overscroll-behavior-y: none;
+      scrollbar-width: none;
+      flex-shrink: 0;
+      border-bottom: 1px solid rgba(255,255,255,.05);
+      scroll-snap-type: x proximity;
+      touch-action: pan-x;
+      -webkit-mask-image: linear-gradient(
+        90deg,
+        transparent 0,
+        #000 var(--music-chip-fade-l),
+        #000 calc(100% - var(--music-chip-fade-r)),
+        transparent 100%
+      );
+      mask-image: linear-gradient(
+        90deg,
+        transparent 0,
+        #000 var(--music-chip-fade-l),
+        #000 calc(100% - var(--music-chip-fade-r)),
+        transparent 100%
+      );
+    }
+    .music-chip-rail::-webkit-scrollbar { display: none; }
+    .music-focus-chips-host {
+      display: flex;
+      flex: 0 0 auto;
+      min-width: max-content;
+    }
+    .music-focus-chips-host .ms-chips {
+      display: flex !important;
+      flex-direction: row;
+      flex-wrap: nowrap !important;
+      align-items: center;
+      gap: 8px;
+      width: max-content;
+      max-width: none;
+      padding: 0;
+      overflow: visible;
+    }
+    /* Align hosted focus pills with Music|Home|Radio|Listen header chrome */
+    .music-focus-chips-host .ms-chip {
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-width: 92px;
+      height: 34px;
+      min-height: 34px;
+      max-height: 34px;
+      padding: 0 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.05);
+      color: #c8d0dc;
+      font: 600 12px/1 inherit;
+      border-radius: 999px;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.16);
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+    .music-focus-chips-host .ms-chip .ms-chip-ico {
+      width: 14px;
+      height: 14px;
+      flex: 0 0 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 0;
+    }
+    .music-focus-chips-host .ms-chip .ms-chip-label {
+      line-height: 1;
+    }
+    .music-focus-chips-host .ms-chip .ms-chip-count {
+      line-height: 1;
+      min-width: 1.1em;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .music-focus-chips-host .ms-chip.on {
+      background: rgba(37, 99, 235, 0.35);
+      border-color: rgba(59, 130, 246, 0.45);
+      color: #fff;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(147, 197, 253, 0.1);
+    }
+    @media (pointer: coarse) {
+      .music-focus-chips-host .ms-chip {
+        height: 36px;
+        min-height: 36px;
+        max-height: 36px;
+      }
+    }
+    /* Gapless continuous Music app feel */
+    .music-home.seamless-music,
+    #musicCatalog.music-home {
+      background: linear-gradient(180deg, #0a0c10 0%, #0c0e14 40%, #0b0d12 100%);
+      overscroll-behavior: none;
+      overscroll-behavior-y: contain;
+      -webkit-overflow-scrolling: touch;
+    }
+    #musicCatalog.music-home .music-home-panel {
+      animation: music-panel-in 0.22s ease;
+    }
+    @keyframes music-panel-in {
+      from { opacity: 0.55; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    /* Collapse nested tab headers — shell already has Music + tabs */
+    #musicCatalog .sd-music-home .mh-head {
+      display: none;
+    }
+    #musicCatalog .sd-music-listen .ml-head,
+    #musicCatalog .sd-music-radio .mr-head {
+      padding-top: 4px;
+      padding-bottom: 2px;
+      min-height: 0;
+      border: 0;
+    }
+    #musicCatalog .sd-music-listen .ml-title,
+    #musicCatalog .sd-music-radio .mr-title {
+      font-size: 14px;
+    }
+    #musicCatalog .sd-music-listen .ml-sub,
+    #musicCatalog .sd-music-radio .mr-sub {
+      font-size: 11px;
+    }
+    #musicCatalog .sd-music-listen .ml-hint,
+    #musicCatalog .sd-music-radio .mr-hint {
+      display: none;
+    }
+    #musicCatalog.music-home > .sd-music-player.show {
+      border-top: 1px solid rgba(255,255,255,.06);
+      background: linear-gradient(180deg, rgba(12,14,20,.92), rgba(10,12,18,.98));
+    }
+    #musicCatalog[data-music-focus="station"] .music-home-tab[data-music-tab="radio"],
+    #musicCatalog[data-music-focus="artist"] .music-home-tab[data-music-tab="listen"],
+    #musicCatalog[data-music-focus="album"] .music-home-tab[data-music-tab="listen"],
+    #musicCatalog[data-music-focus="track"] .music-home-tab[data-music-tab="listen"],
+    #musicCatalog[data-music-focus="playlist"] .music-home-tab[data-music-tab="listen"],
+    #musicCatalog[data-music-focus="video"] .music-home-tab[data-music-tab="listen"] {
+      box-shadow: inset 0 -2px 0 rgba(59,130,246,.55);
+    }
+    .tv-root.music-catalog-open .collapsed-chrome,
+    .tv-root.music-catalog-open .cinema-overlay { pointer-events: none; }
+    @media (orientation: landscape) and (max-height: 480px) {
+      .music-home { height: 100dvh; max-height: 100dvh; }
+      .music-unified-search-wrap { padding-top: 2px; }
+      .music-chip-rail { padding: 2px 10px 4px; }
+      .music-home-panel { padding: 0; }
+      .music-home .music-home-head.vod-catalog-head { padding: 6px 10px; min-height: 40px; }
+    }
+    /* Phone portrait: full-bleed sheet (default .vod-catalog inset:0) */
+    /* Tablet / landscape phone: nearly full width */
+    @media (min-width: 600px) and (max-width: 899px),
+           (orientation: landscape) and (max-height: 520px) and (min-width: 560px) {
+      #musicCatalog.music-home {
+        width: min(960px, calc(100% - 24px));
+        margin-left: auto;
+        margin-right: auto;
+        left: 0; right: 0;
+        border-radius: 16px 16px 0 0;
+      }
+    }
+    /* Laptop / desktop: expand Music sheet — no narrow centered card */
+    @media (min-width: 900px) {
+      #musicCatalog.music-home {
+        width: min(1280px, calc(100% - 32px));
+        max-width: calc(100% - 32px);
+        margin-left: auto;
+        margin-right: auto;
+        left: 0; right: 0;
+        border-radius: 16px 16px 0 0;
+      }
+    }
+    @media (min-width: 1280px) and (orientation: landscape) {
+      #musicCatalog.music-home {
+        width: min(1440px, calc(100% - 48px));
+      }
+    }
+    /* Fine pointer desktop: slightly taller usable sheet */
+    @media (min-width: 900px) and (pointer: fine) and (min-height: 700px) {
+      #musicCatalog.music-home {
+        height: min(96dvh, 100%);
+        max-height: min(96dvh, 100%);
+      }
+    }
+
     /* Party home slide-up — reuses .vod-catalog / .vod-catalog-backdrop chrome */
     .party-home .party-home-head h2 { flex: 1; }
-    .party-home-body { display: grid; gap: 14px; align-content: start; }
+    .party-home-body { display: grid; gap: 14px; align-content: start; padding-bottom: max(28px, env(safe-area-inset-bottom, 0px)); }
     .party-home-panel { background: rgba(20,24,32,.92); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
     .party-home-panel h3 { margin: 0 0 10px; font-size: 14px; font-weight: 700; color: #e8edf5; }
+    .party-home-hero { padding: 16px 14px 14px; }
+    .party-home-lede { margin: 0 0 14px; color: var(--muted); font-size: 14px; line-height: 1.45; }
+    .party-home-cta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .party-home-cta-btn { min-height: 44px; width: 100%; justify-content: center; }
+    .party-home-cta-btn.active { box-shadow: 0 0 0 2px rgba(37,99,235,.45); }
     .party-home-muted { margin: 0 0 10px; color: var(--muted); font-size: 13px; line-height: 1.4; }
+    .party-home-field { display: block; margin: 10px 0 6px; font-size: 12px; font-weight: 600; color: #b8c0d0; }
+    .party-home-optional { font-weight: 500; color: var(--muted); }
+    .party-home-create input[type="text"],
+    .party-home-create input:not([type]),
+    .party-home-create input[type="password"],
+    .party-home-create input[type="search"] {
+      width: 100%; box-sizing: border-box; min-height: 42px; padding: 0 12px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #fff;
+      font-size: 14px; font-family: inherit;
+    }
+    .party-home-create input:focus { outline: none; border-color: #3b82f6; }
+    .party-home-check { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 4px;
+      font-size: 13px; color: #c5cddb; line-height: 1.35; cursor: pointer; }
+    .party-home-check input { margin-top: 2px; }
     .party-home-row { display: flex; gap: 8px; flex-wrap: wrap; }
     .party-home-row input { flex: 1; min-width: 120px; min-height: 40px; padding: 0 12px; border-radius: 10px;
       border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #fff; font-size: 14px; font-family: inherit; }
     .party-home-row input:focus { outline: none; border-color: #3b82f6; }
     .party-home-row button, .party-home-btn { appearance: none; border: 0; border-radius: 10px; padding: 10px 14px;
       background: #2563eb; color: #fff; font-weight: 700; cursor: pointer; font-size: 13px; font-family: inherit;
-      touch-action: manipulation; }
-    .party-home-btn.secondary, a.party-home-btn.secondary { background: transparent; border: 1px solid rgba(255,255,255,.14); color: #e8edf5; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
-    .party-home-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+      touch-action: manipulation; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+    .party-home-btn.secondary, a.party-home-btn.secondary { background: transparent; border: 1px solid rgba(255,255,255,.14); color: #e8edf5; font-weight: 600; }
+    .party-home-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .party-home-actions.compact { margin-top: 8px; }
     .party-home-err { color: #f87171; font-size: 13px; margin: 8px 0 0; min-height: 18px; }
     .party-home-empty { margin: 0; padding: 4px 0; color: var(--muted); font-size: 13px; }
+    .party-home-empty-block { display: grid; gap: 8px; }
     .party-home-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin: 0; }
     .party-home-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; }
     .party-home-grid { display: grid; gap: 10px; margin-top: 10px; }
@@ -1357,8 +1957,24 @@
     .party-home-card .body { flex: 1; min-width: 0; }
     .party-home-card strong { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .party-home-card span { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .party-home-chip { display: inline-block; margin-top: 4px; font-size: 10px; font-weight: 700; letter-spacing: .02em;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); color: #cbd5e1; text-transform: uppercase; }
+    .party-home-chip.lock { border-color: rgba(251,191,36,.35); color: #fbbf24; }
     .party-home-poster { width: 44px; height: 66px; border-radius: 6px; object-fit: cover; background: #0b0d12; flex-shrink: 0; }
-    .party-home-poster.ph { display: grid; place-items: center; font-size: 11px; color: var(--muted); border: 1px solid rgba(255,255,255,.1); }
+    .party-home-poster.ph { display: grid; place-items: center; font-size: 15px; font-weight: 700; letter-spacing: .02em;
+      color: #e8edf5; border: 1px solid rgba(255,255,255,.12);
+      background: linear-gradient(145deg, #243044 0%, #121820 100%); }
+    .party-home-poster-letter { line-height: 1; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+    .party-home-poster.logo { object-fit: contain; padding: 4px; background: #10141c; }
+    .party-home-panel.has-nearby { border-color: rgba(37,99,235,.45); box-shadow: 0 0 0 1px rgba(37,99,235,.15); }
+    .party-home-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 2px 8px;
+      color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .party-home-footer-link { color: #93c5fd; text-decoration: none; font-weight: 600; }
+    .party-home-footer-link:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; border-radius: 4px; }
+    .party-home-footer-hint { flex: 1; min-width: 160px; }
+    @media (max-width: 420px) {
+      .party-home-cta { grid-template-columns: 1fr; }
+    }
 
     @media (max-width: 640px) {
       :root { --slot-w: 96px; --ch-w: 128px; --row-h: 56px; --epg-h: 45vh; }
@@ -1379,15 +1995,19 @@
       .day-col { padding: 12px 10px; font-size: 12px; }
     }
 
-    .guide-more-wrap { position: relative; display: inline-flex; align-items: center; }
+    .guide-more-wrap { position: relative; display: inline-flex; align-items: center; overflow: visible; }
     .guide-more-btn { width: var(--btn-icon-size, 36px); height: var(--btn-icon-size, 36px); }
+    /* Fixed — escapes .epg-panel / .action-group overflow:hidden so ⋯ menus stay usable on all themes */
     .guide-more-menu {
-      position: absolute; right: 0; top: calc(100% + 6px); z-index: 50;
+      position: fixed; z-index: 120;
       min-width: 188px; max-width: min(92vw, 240px);
+      max-height: min(70vh, 520px); overflow-y: auto; -webkit-overflow-scrolling: touch;
       padding: 6px; border-radius: 12px;
       background: rgba(14,16,22,.98); border: 1px solid rgba(255,255,255,.12);
       box-shadow: 0 12px 32px rgba(0,0,0,.45);
       display: flex; flex-direction: column; gap: 2px;
+      /* top/left/right set by positionGuideMoreMenu() when opened */
+      top: 0; left: 0;
     }
     .guide-more-menu[hidden] { display: none !important; }
     .guide-more-menu button {
@@ -1503,6 +2123,16 @@
 }
 .tv-root.live-embed-active .collapsed-chrome {
   z-index: 22;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto;
+}
+.tv-root.live-embed-active .collapsed-chrome.chrome-hidden {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+.tv-root.live-embed-active .collapsed-chrome .btn-search-chrome,
+.tv-root.live-embed-active .collapsed-chrome .live-more-wrap {
   pointer-events: auto;
 }
 .tv-root.live-embed-active .trailer-back-btn,

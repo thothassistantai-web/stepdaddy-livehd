@@ -6,3 +6,6 @@ python-dateutil==2.9.0
 pydantic==2.11.10
 starlette==0.48.0
 anyio==4.11.0
+
+ytmusicapi>=1.12.2
+yt-dlp>=2025.1.0

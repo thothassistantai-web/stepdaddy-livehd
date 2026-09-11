@@ -37,9 +37,19 @@ def render_party_join_page(
     else:
         status_line = "Opens the host’s stream, then joins the party."
 
-    poster_html = (
-        f'<img class="poster" src="{poster}" alt="" loading="lazy"/>' if poster else ""
-    )
+    letter = escape(((title or room_name or code) or "?").strip()[:1].upper() or "?")
+    if poster:
+        poster_html = (
+            f'<img class="poster" src="{poster}" alt="" loading="lazy" '
+            f'data-letter="{letter}" '
+            f'onerror="this.onerror=null;var d=document.createElement(\'div\');'
+            f'd.className=\'poster ph\';d.textContent=this.getAttribute(\'data-letter\')||\'?\';'
+            f'this.replaceWith(d);"/>'
+        )
+    elif exists:
+        poster_html = f'<div class="poster ph">{letter}</div>'
+    else:
+        poster_html = ""
     room_heading = name_safe or f"Party {code}"
 
     return f"""<!doctype html>
@@ -104,40 +114,64 @@ button.secondary {{ background:transparent; border:1px solid var(--line); color:
       <label for="pwd">Room password</label>
       <input id="pwd" type="password" placeholder="Password" autocomplete="current-password"/>
     </div>
-    <button type="button" id="go">Watch together</button>
+    <button type="button" id="go" data-join="1">Join &amp; watch</button>
+    <button type="button" class="secondary" id="holdAuto" hidden>Stay on this page</button>
   </div>
   <div id="missingBlock" {"hidden" if exists else ""}>
     <p class="err">Room not found or expired. Ask the host for a new invite, or browse open parties.</p>
     <button type="button" class="secondary" id="goHome">Open Party Home</button>
   </div>
   <p class="err" id="err"></p>
-  <p class="hint" id="hint">After PIN login you land on the stream with this party already queued.</p>
+  <p class="hint" id="hint">Opens the live stream and joins this party. PIN unlock (if enabled) keeps the invite queued.</p>
   <div class="links"><a href="/party">Party Home</a> · <a href="/tv/">TV Guide</a></div>
 </div>
 <script>
 const CODE="{code}";
-const WATCH={repr(watch_js)};
 const LOCKED="{locked_js}";
 const EXISTS="{exists_js}";
 const TITLE={repr(title or "")};
 const ROOM_NAME={repr(room_name or "")};
 const MEMBERS={members};
-const CHANNEL={repr(ch)};
 const META_URL="/party/join/"+encodeURIComponent(CODE)+"/meta";
+let watchPath = {repr(watch_js)};
+let channelId = {repr(ch)};
+let autoTimer = null;
+let autoLeft = 0;
+let autoCancelled = false;
+let roomLocked = LOCKED === "1";
 
 function $(id){{ return document.getElementById(id); }}
 function setErr(msg){{ $("err").textContent = msg || ""; }}
 
+function guestFallbackName() {{
+  try {{
+    let id = localStorage.getItem("sd_party_client_id") || "";
+    if (!id) {{
+      id = (crypto.randomUUID && crypto.randomUUID()) ||
+        ("c" + Math.random().toString(36).slice(2) + Date.now().toString(36));
+      localStorage.setItem("sd_party_client_id", id);
+    }}
+    const suf = String(id).replace(/[^a-zA-Z0-9]/g, "").slice(-4).toUpperCase() || "GUEST";
+    return "Guest-" + suf;
+  }} catch (e) {{
+    return "Guest";
+  }}
+}}
+
 try {{
-  const saved = localStorage.getItem("sd_party_name") || "";
-  if (saved) $("name").value = saved;
-  else $("name").value = "Guest";
-}} catch (e) {{ $("name").value = "Guest"; }}
+  const saved = (localStorage.getItem("sd_party_name") || "").trim();
+  if (saved && saved.toLowerCase() !== "guest") $("name").value = saved;
+  else {{
+    const gen = guestFallbackName();
+    $("name").value = gen;
+    try {{ localStorage.setItem("sd_party_name", gen); }} catch (e2) {{}}
+  }}
+}} catch (e) {{ $("name").value = guestFallbackName(); }}
 
 function buildWatchUrl(base, name) {{
-  let path = base || "/tv/";
-  if (CHANNEL && (!path || path === "/tv/" || path === "/tv")) {{
-    path = "/tv/" + encodeURIComponent(CHANNEL);
+  let path = base || watchPath || "/tv/";
+  if (channelId && (!path || path === "/tv/" || path === "/tv")) {{
+    path = "/tv/" + encodeURIComponent(channelId);
   }}
   const join = path + (path.includes("?") ? "&" : "?") +
     "party=" + encodeURIComponent(CODE) +
@@ -145,19 +179,33 @@ function buildWatchUrl(base, name) {{
   return join;
 }}
 
+function cancelAuto(reason) {{
+  autoCancelled = true;
+  if (autoTimer) {{ clearInterval(autoTimer); autoTimer = null; }}
+  const hold = $("holdAuto");
+  if (hold) hold.hidden = true;
+  const hint = $("hint");
+  if (hint && reason) hint.textContent = reason;
+  else if (hint) hint.textContent = "Tap Join & watch when you are ready.";
+  const go = $("go");
+  if (go && !go.disabled) go.textContent = "Join & watch";
+}}
+
 function goWatch() {{
   if (EXISTS !== "1") {{
     setErr("Room not found or expired.");
     return;
   }}
-  const n = ($("name").value || "Guest").trim() || "Guest";
+  const n = ($("name").value || "").trim() || guestFallbackName();
   const p = (($("pwd") && $("pwd").value) || "").trim();
-  if (LOCKED === "1" && !p) {{
+  if (roomLocked && !p) {{
+    cancelAuto("Enter the room password, then Join & watch.");
     setErr("This party needs a password.");
     $("pwd").focus();
     return;
   }}
   setErr("");
+  cancelAuto("");
   try {{
     sessionStorage.setItem("sd_party_pending", CODE);
     sessionStorage.setItem("sd_party_name_pending", n);
@@ -171,14 +219,41 @@ function goWatch() {{
   }} catch (e) {{}}
   $("go").disabled = true;
   $("go").textContent = "Opening…";
-  location.href = buildWatchUrl(WATCH, n);
+  location.href = buildWatchUrl(watchPath, n);
+}}
+
+function startAutoJoin() {{
+  if (EXISTS !== "1" || roomLocked || autoCancelled) return;
+  const hold = $("holdAuto");
+  if (hold) hold.hidden = false;
+  autoLeft = 2;
+  const tick = () => {{
+    if (autoCancelled) return;
+    const go = $("go");
+    if (go) go.textContent = autoLeft > 0 ? ("Joining in " + autoLeft + "…") : "Opening…";
+    const hint = $("hint");
+    if (hint) hint.textContent = "Auto-joining the stream. Tap Stay on this page to edit your name first.";
+    if (autoLeft <= 0) {{
+      if (autoTimer) {{ clearInterval(autoTimer); autoTimer = null; }}
+      goWatch();
+      return;
+    }}
+    autoLeft -= 1;
+  }};
+  tick();
+  autoTimer = setInterval(tick, 1000);
 }}
 
 $("go").onclick = goWatch;
 $("goHome").onclick = () => {{ location.href = "/party"; }};
+const holdBtn = $("holdAuto");
+if (holdBtn) holdBtn.onclick = () => cancelAuto("Auto-join paused. Edit your name, then tap Join & watch.");
 ["name","pwd"].forEach((id) => {{
   const el = $(id);
-  if (el) el.addEventListener("keydown", (e) => {{ if (e.key === "Enter") goWatch(); }});
+  if (!el) return;
+  el.addEventListener("keydown", (e) => {{ if (e.key === "Enter") goWatch(); }});
+  el.addEventListener("focus", () => cancelAuto(""));
+  el.addEventListener("input", () => cancelAuto(""));
 }});
 
 async function refreshMeta() {{
@@ -187,6 +262,7 @@ async function refreshMeta() {{
     const r = await fetch(META_URL, {{ credentials: "same-origin" }});
     const data = await r.json();
     if (!data || !data.ok) {{
+      cancelAuto("");
       $("statusBadge").textContent = "Room missing";
       $("statusBadge").classList.add("gone");
       $("joinForm").hidden = true;
@@ -197,6 +273,8 @@ async function refreshMeta() {{
     if (data.name) {{
       $("roomHeading").textContent = data.name;
     }}
+    if (data.watchPath) watchPath = String(data.watchPath);
+    if (data.channelId) channelId = String(data.channelId);
     if (data.title) {{
       $("meta").textContent = "Now playing: " + data.title +
         (data.memberCount ? " · " + data.memberCount + " watching" : "");
@@ -204,9 +282,11 @@ async function refreshMeta() {{
       $("meta").textContent = data.memberCount + " watching";
     }}
     if (data.locked) {{
+      roomLocked = true;
       $("pwdWrap").style.display = "block";
       $("statusBadge").textContent = "Locked";
       $("statusBadge").classList.add("lock");
+      cancelAuto("This party needs a password before joining.");
     }}
   }} catch (e) {{}}
 }}
@@ -215,6 +295,7 @@ if (EXISTS === "1") {{
   if (LOCKED === "1") $("statusBadge").classList.add("lock");
   setTimeout(refreshMeta, 2500);
   setInterval(refreshMeta, 12000);
+  setTimeout(startAutoJoin, 400);
 }} else {{
   $("statusBadge").classList.add("gone");
 }}
@@ -261,7 +342,8 @@ main { max-width:920px; margin:0 auto; padding:20px 16px 48px; display:grid; gap
 .card strong { display:block; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .card span { display:block; font-size:12px; color:var(--muted); margin-top:2px; }
 .poster { width:44px; height:66px; border-radius:6px; object-fit:cover; background:#0b0d12; flex-shrink:0; }
-.poster.ph { display:grid; place-items:center; font-size:11px; color:var(--muted); border:1px solid var(--line); }
+.poster.ph { display:grid; place-items:center; font-size:15px; font-weight:700; color:#e8edf5; border:1px solid var(--line);
+  background:linear-gradient(145deg,#243044 0%,#121820 100%); }
 button, .btn { appearance:none; border:0; border-radius:10px; padding:10px 14px; background:var(--accent); color:#fff;
   font-weight:700; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; font-size:13px; }
 button.secondary, a.btn.secondary { background:transparent; border:1px solid var(--line); color:var(--text); font-weight:600; }
@@ -284,19 +366,27 @@ form.row input { flex:1; min-width:140px; padding:11px 12px; border-radius:10px;
   <a class="nav" href="/vod">VOD</a>
 </header>
 <main>
-  <section class="panel">
-    <h2>Join with code</h2>
-    <form class="row" id="joinForm">
-      <input id="joinCode" placeholder="Party code" maxlength="8" autocomplete="off" spellcheck="false"/>
-      <input id="joinName" placeholder="Display name" maxlength="32" autocomplete="nickname"/>
-      <button type="submit">Join</button>
-    </form>
-    <p class="err" id="joinErr"></p>
+  <section class="panel" id="hero">
+    <p class="muted" style="margin:0 0 14px;font-size:14px;line-height:1.45">Watch together — create a room, enter a code, or jump into something nearby.</p>
+    <div class="actions" style="margin:0" role="group" aria-label="Party actions">
+      <button type="button" id="ctaCreate" aria-expanded="false" aria-controls="createPanel">Create party</button>
+      <button type="button" class="secondary" id="ctaJoin" aria-expanded="false" aria-controls="joinPanel">Enter code</button>
+    </div>
   </section>
 
-  <section class="panel">
+  <section class="panel" id="createPanel" hidden>
     <h2>Create a party</h2>
-    <p class="muted">Start on live TV or open VOD, then invite friends with a code.</p>
+    <p class="muted">Name it, choose public or private, then start on live TV or VOD.</p>
+    <form class="row" id="createMeta" onsubmit="return false">
+      <input id="createName" placeholder="Room name" maxlength="64" autocomplete="off"/>
+      <input id="joinName" placeholder="Display name" maxlength="32" autocomplete="nickname"/>
+    </form>
+    <label class="muted" style="display:flex;gap:8px;align-items:center;margin-top:10px;cursor:pointer">
+      <input type="checkbox" id="createPublic" checked/> Public room (browseable on this PIN)
+    </label>
+    <form class="row" style="margin-top:10px" onsubmit="return false">
+      <input id="createPassword" type="password" placeholder="Password (optional)" maxlength="64" autocomplete="new-password"/>
+    </form>
     <div class="actions">
       <a class="btn" id="startLive" href="/tv/?party_create=1">Start on live TV</a>
       <a class="btn secondary" id="startVod" href="/vod?party_create=1">Start from VOD</a>
@@ -304,26 +394,39 @@ form.row input { flex:1; min-width:140px; padding:11px 12px; border-radius:10px;
     </div>
   </section>
 
-  <section class="panel">
-    <h2>Who’s online</h2>
-    <p class="pill"><span class="dot"></span> <span id="onlineSummary">Checking…</span></p>
-    <div class="grid" id="onlineList" style="margin-top:10px"></div>
+  <section class="panel" id="joinPanel" hidden>
+    <h2>Enter code</h2>
+    <form class="row" id="joinForm">
+      <input id="joinCode" placeholder="Party code" maxlength="8" autocomplete="off" spellcheck="false" aria-label="Party code"/>
+      <input id="joinNameJoin" placeholder="Display name" maxlength="32" autocomplete="nickname" aria-label="Display name"/>
+      <button type="submit">Join</button>
+    </form>
+    <p class="err" id="joinErr"></p>
+  </section>
+
+  <section class="panel" id="nearbyPanel">
+    <h2>Nearby on this Wi‑Fi</h2>
+    <p class="muted">Rooms announcing on this network. Locked rooms still need a password.</p>
+    <div class="grid cards" id="nearbyList"><p class="empty">Checking…</p></div>
   </section>
 
   <section class="panel">
-    <h2>Active public parties</h2>
+    <h2>Continue / recent</h2>
+    <div class="grid cards" id="continueList"><p class="empty">Loading…</p></div>
+  </section>
+
+  <section class="panel">
+    <h2>Live public parties</h2>
     <div class="grid cards" id="publicList"><p class="empty">Loading…</p></div>
   </section>
 
   <section class="panel">
-    <h2>Your recent parties</h2>
-    <div class="grid" id="recentList"><p class="empty">No recent parties on this device.</p></div>
+    <h2>Who’s watching</h2>
+    <p class="pill"><span class="dot"></span> <span id="onlineSummary">Checking…</span></p>
+    <div class="grid" id="onlineList" style="margin-top:10px"></div>
   </section>
 
-  <section class="panel">
-    <h2>Suggested</h2>
-    <div class="grid" id="suggestList"><p class="empty">Watch something, then start a party from here.</p></div>
-  </section>
+  <p class="muted" style="font-size:12px"><a class="nav" href="/tv/" style="color:#93c5fd;text-decoration:none;font-weight:600">TV Guide</a> · Invite tips: share the link, or use Wi‑Fi nearby from inside a party.</p>
 </main>
 <script>
 function esc(s) {
@@ -332,8 +435,35 @@ function esc(s) {
 function $(id) { return document.getElementById(id); }
 try {
   const n = localStorage.getItem("sd_party_name") || "";
-  if (n) $("joinName").value = n;
+  if (n) {
+    if ($("joinName")) $("joinName").value = n;
+    if ($("joinNameJoin")) $("joinNameJoin").value = n;
+  }
 } catch (e) {}
+
+let createExpanded = false, joinExpanded = false;
+function syncCta() {
+  $("createPanel").hidden = !createExpanded;
+  $("joinPanel").hidden = !joinExpanded;
+  $("ctaCreate").setAttribute("aria-expanded", createExpanded ? "true" : "false");
+  $("ctaJoin").setAttribute("aria-expanded", joinExpanded ? "true" : "false");
+}
+$("ctaCreate").onclick = () => { createExpanded = !createExpanded; if (createExpanded) joinExpanded = false; syncCta(); };
+$("ctaJoin").onclick = () => { joinExpanded = !joinExpanded; if (joinExpanded) createExpanded = false; syncCta(); };
+function stashCreate() {
+  try {
+    sessionStorage.setItem("sd_party_create_name", ($("createName").value || "").trim());
+    sessionStorage.setItem("sd_party_create_public", $("createPublic").checked ? "1" : "0");
+    const pwd = ($("createPassword").value || "").trim();
+    if (pwd) sessionStorage.setItem("sd_party_create_password", pwd);
+    else sessionStorage.removeItem("sd_party_create_password");
+    localStorage.setItem("sd_party_name", ($("joinName").value || "Guest").trim() || "Guest");
+  } catch (e) {}
+}
+["startLive","startVod","startLast"].forEach((id) => {
+  const el = $(id);
+  if (el) el.addEventListener("click", stashCreate);
+});
 
 function watchJoinUrl(code, name, watchPath) {
   let path = watchPath || "/tv/";
@@ -353,7 +483,7 @@ function stashPending(code, name) {
 $("joinForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const code = ($("joinCode").value || "").trim().toUpperCase();
-  const name = ($("joinName").value || "Guest").trim() || "Guest";
+  const name = (($("joinNameJoin") && $("joinNameJoin").value) || ($("joinName") && $("joinName").value) || "Guest").trim() || "Guest";
   $("joinErr").textContent = "";
   if (!code || code.length < 4) {
     $("joinErr").textContent = "Enter a valid party code.";
@@ -381,15 +511,59 @@ function roomCard(room, opts) {
   if (room.locked) meta.push("Locked");
   if (room.title && room.title !== title) meta.push(room.title);
   if (room.channelId) meta.push("Ch " + room.channelId);
-  const poster = room.posterPath
-    ? '<img class="poster" src="' + esc(room.posterPath) + '" alt=""/>'
-    : '<div class="poster ph">LIVE</div>';
+  function usable(u) {
+    if (u == null) return "";
+    const s = String(u).trim();
+    return (!s || s === "null" || s === "undefined") ? "" : s;
+  }
+  const poster = usable(room.posterPath);
+  const logo = usable(room.logoPath || room.logo);
+  const letter = String(title).trim().charAt(0).toUpperCase() || "P";
+  let thumb;
+  if (poster || logo) {
+    const src = poster || logo;
+    const fb = poster && logo && poster !== logo ? logo : "";
+    thumb = '<img class="poster" src="' + esc(src) + '" alt="" loading="lazy"' +
+      (fb ? ' data-fallback="' + esc(fb) + '"' : "") +
+      ' data-letter="' + esc(letter) + '"' +
+      " onerror=\"this.onerror=null;var f=this.getAttribute('data-fallback');if(f){this.removeAttribute('data-fallback');this.src=f;return;}var d=document.createElement('div');d.className='poster ph';d.textContent=this.getAttribute('data-letter')||'?';this.replaceWith(d);\"/>";
+  } else {
+    thumb = '<div class="poster ph">' + esc(opts.badge || letter) + '</div>';
+  }
   const href = opts.href || watchJoinUrl(room.code, $("joinName").value || "Guest", room.watchPath);
   return (
-    '<div class="card">' + poster +
+    '<div class="card">' + thumb +
     '<div class="body"><strong>' + esc(title) + '</strong><span>' + esc(meta.join(" · ")) + '</span></div>' +
     '<a class="btn" href="' + esc(href) + '">Join</a></div>'
   );
+}
+
+async function loadNearby() {
+  const el = $("nearbyList");
+  if (!el) return;
+  try {
+    const r = await fetch("/party/nearby", { credentials: "same-origin" });
+    if (r.status === 401) {
+      el.innerHTML = '<p class="empty">Sign in with PIN to see nearby parties.</p>';
+      return;
+    }
+    const data = await r.json();
+    const rooms = (data && data.rooms) || [];
+    if (!rooms.length) {
+      el.innerHTML = '<p class="empty">No parties on this Wi‑Fi right now.</p>';
+      return;
+    }
+    el.innerHTML = rooms.map((room) => roomCard(room)).join("");
+    const panel = $("nearbyPanel");
+    const main = panel && panel.parentNode;
+    if (panel && main && rooms.length) {
+      panel.classList.add("has-nearby");
+      const hero = $("hero");
+      if (hero && hero.nextSibling !== panel) main.insertBefore(panel, hero.nextSibling);
+    }
+  } catch (e) {
+    el.innerHTML = '<p class="empty">Nearby discovery unavailable.</p>';
+  }
 }
 
 async function loadPublic() {
@@ -423,7 +597,7 @@ async function loadPresence() {
     const n = (data && data.inParties) || 0;
     const priv = (data && data.privateRooms) || 0;
     $("onlineSummary").textContent =
-      n + " in parties now" + (priv ? " · " + priv + " private room" + (priv === 1 ? "" : "s") : "");
+      n + " watching now" + (priv ? " · " + priv + " private room" + (priv === 1 ? "" : "s") : "");
     const people = (data && data.online) || [];
     const el = $("onlineList");
     if (!people.length) {
@@ -447,35 +621,26 @@ async function loadPresence() {
   }
 }
 
-function loadRecent() {
-  const el = $("recentList");
+function loadContinue() {
+  const el = $("continueList");
   let recent = [];
-  try { recent = JSON.parse(localStorage.getItem("sd_party_recent") || "[]"); } catch (e) {}
-  if (!Array.isArray(recent) || !recent.length) {
-    el.innerHTML = '<p class="empty">No recent parties on this device.</p>';
-    return;
-  }
-  el.innerHTML = recent.slice(0, 8).map((room) => {
-    const href = "/party/join/" + encodeURIComponent(room.code || "");
-    return roomCard({
-      code: room.code,
-      name: room.name,
-      title: room.title,
-      watchPath: href,
-      memberCount: null,
-    }, { href: href });
-  }).join("");
-}
-
-function loadSuggested() {
-  const el = $("suggestList");
   let place = null;
+  try { recent = JSON.parse(localStorage.getItem("sd_party_recent") || "[]"); } catch (e) {}
   try { place = JSON.parse(localStorage.getItem("sd_last_place") || "null"); } catch (e) {}
   const cards = [];
-  if (place && place.channelId) {
+  const seen = {};
+  if (place && place.partyCode) {
+    seen[String(place.partyCode).toUpperCase()] = 1;
+    cards.push(roomCard({
+      code: place.partyCode,
+      name: place.title || "Resume party",
+      title: place.path || "",
+    }, { href: "/party/join/" + encodeURIComponent(place.partyCode) }));
+  }
+  if (place && place.channelId && !place.partyCode) {
     const href = "/tv/" + encodeURIComponent(place.channelId) + "?party_create=1";
     cards.push(
-      '<div class="card"><div class="poster ph">TV</div><div class="body"><strong>Start party on Ch ' +
+      '<div class="card"><div class="poster ph">TV</div><div class="body"><strong>Party on Ch ' +
       esc(place.channelId) + '</strong><span>' + esc(place.title || "Last live channel") +
       '</span></div><a class="btn" href="' + esc(href) + '">Start</a></div>'
     );
@@ -497,21 +662,27 @@ function loadSuggested() {
       '<a class="btn" href="' + esc(path) + '">Start</a></div>'
     );
   }
-  if (place && place.partyCode) {
-    cards.push(
-      '<div class="card"><div class="poster ph">↻</div><div class="body"><strong>Resume party ' +
-      esc(place.partyCode) + '</strong><span>' + esc(place.title || place.path || "") +
-      '</span></div><a class="btn secondary" href="/party/join/' + esc(place.partyCode) + '">Rejoin</a></div>'
-    );
+  if (Array.isArray(recent)) {
+    recent.slice(0, 8).forEach((room) => {
+      const code = String((room && room.code) || "").toUpperCase();
+      if (!code || seen[code]) return;
+      seen[code] = 1;
+      const href = "/party/join/" + encodeURIComponent(code);
+      cards.push(roomCard({
+        code: code,
+        name: room.name || code,
+        title: room.title,
+      }, { href: href }));
+    });
   }
-  el.innerHTML = cards.length ? cards.join("") : '<p class="empty">Watch something, then start a party from here.</p>';
+  el.innerHTML = cards.length ? cards.join("") : '<p class="empty">No recent parties on this device yet.</p>';
 }
 
+loadNearby();
 loadPublic();
 loadPresence();
-loadRecent();
-loadSuggested();
-setInterval(() => { loadPublic(); loadPresence(); }, 20000);
+loadContinue();
+setInterval(() => { loadNearby(); loadPublic(); loadPresence(); }, 22000);
 </script>
 <script src="/tv-assets/pull_reload.js" defer></script>
 </body></html>"""

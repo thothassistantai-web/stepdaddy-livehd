@@ -89,6 +89,10 @@
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.28);
 }
+.guide-sheet-handle:hover .guide-sheet-grip,
+.guide-sheet-handle:focus-visible .guide-sheet-grip {
+  background: rgba(255, 255, 255, 0.48);
+}
 
 /* Phone sheet: portrait phones + short landscape (S21/S23 landscape) */
 @media (orientation: portrait) and (max-width: 900px),
@@ -136,8 +140,26 @@
   .tv-root[data-guide-snap="expanded"] { --guide-sheet-h: var(--guide-sheet-expanded); }
 }
 
-/* Desktop / tall landscape tablets: fixed --epg-h, no drag handle */
+/* Desktop / tall landscape tablets: free --epg-h resize via same grabber */
 @media (min-width: 901px) and (min-height: 561px) {
-  .guide-sheet-handle { display: none !important; }
-  .tv-root { --guide-sheet-h: unset; }
+  .tv-root {
+    --guide-video-min: 28vh;
+  }
+  .tv-root:not(.guide-collapsed) .guide-sheet-handle {
+    display: flex !important;
+    height: 14px;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    background: linear-gradient(180deg, rgba(255,255,255,.04), transparent);
+  }
+  .tv-root:not(.guide-collapsed) .guide-sheet-grip {
+    width: 48px;
+    height: 3px;
+  }
+  .tv-root:not(.guide-collapsed) .video-area {
+    flex: 1 1 auto;
+    min-height: var(--guide-video-min);
+  }
+  .tv-root.guide-epg-dragging:not(.guide-collapsed) .epg-panel {
+    transition: none;
+  }
 }

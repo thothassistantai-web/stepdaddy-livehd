@@ -424,8 +424,8 @@ class EpgService:
             return "series"
         return "other"
 
-    def _programme_to_api(self, prog: Programme) -> dict:
-        return {
+    def _programme_to_api(self, prog: Programme, *, allow_network: bool = True) -> dict:
+        out = {
             "title": prog.title,
             "subtitle": prog.subtitle,
             "start": datetime.fromtimestamp(prog.start_ts, timezone.utc).isoformat(),
@@ -440,6 +440,17 @@ class EpgService:
             "poster_url": prog.poster_url or None,
             "backdrop_url": prog.backdrop_url or None,
         }
+        # epg.pw JSON/gzip often omit episode-num; fill S/E from TVmaze plot match.
+        # Network lookups are for now/next only — schedule uses disk/memory cache to
+        # avoid blocking the single uvicorn worker on cold TVmaze fetches.
+        if out.get("season") is None or out.get("episode") is None or not out.get("episode_label"):
+            try:
+                from StepDaddyLiveHD.supplements.episode_resolve import enrich_api_programme
+
+                enrich_api_programme(out, allow_network=allow_network)
+            except Exception:
+                pass
+        return out
 
     @staticmethod
     def _feed_download_url(url: str) -> str:
@@ -1490,7 +1501,7 @@ class EpgService:
         for prog in self._programmes_by_channel.get(tvg_id, []):
             if prog.stop_ts <= window_start or prog.start_ts >= window_end:
                 continue
-            out.append(self._programme_to_api(prog))
+            out.append(self._programme_to_api(prog, allow_network=False))
         return out
 
     def get_upcoming_events(self, hours: int = 24, limit: int = 300):
@@ -1502,7 +1513,7 @@ class EpgService:
             for prog in rows:
                 if prog.start_ts < now or prog.start_ts > cutoff:
                     continue
-                item = self._programme_to_api(prog)
+                item = self._programme_to_api(prog, allow_network=False)
                 item["channel"] = tvg_id
                 events.append(item)
         events.sort(key=lambda e: e["start"])

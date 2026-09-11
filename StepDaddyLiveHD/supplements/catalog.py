@@ -12,6 +12,7 @@ import httpx
 
 from . import dulo, ntv, open_iptv
 from .hls_rewrite import rewrite_playlist
+from .logo_resolve import get_logo_resolver
 from .settings import get_settings
 
 log = logging.getLogger("supplements.catalog")
@@ -161,6 +162,23 @@ class SupplementCatalog:
             if label == "adultswim":
                 stats["adultswim"] = len(part)
             rows.extend(part)
+
+        # Attach logos once at catalog build (iptv-org / Pluto / meta) — CDN URLs.
+        resolver = get_logo_resolver()
+        try:
+            await resolver.ensure_loaded(self._client)
+        except Exception as exc:
+            log.warning("logo index load failed: %s", exc)
+            resolver.load_from_disk()
+        logo_filled = 0
+        for row in rows:
+            before = (row.get("logo") or "").strip()
+            resolver.enrich_row(row)
+            after = (row.get("logo") or "").strip()
+            if after and not before:
+                logo_filled += 1
+        stats["logo_filled"] = logo_filled
+        stats["logo_index"] = resolver.stats
 
         channels = [_from_row(r) for r in rows]
         by_id = {c.id: c for c in channels}

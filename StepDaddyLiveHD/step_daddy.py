@@ -12,15 +12,48 @@ from pydantic import BaseModel, Field
 from urllib.parse import quote, urlparse, urljoin
 import httpx
 AsyncSession=httpx.AsyncClient
-from typing import List
+from typing import List, Optional
 from .utils import encrypt, decrypt, urlsafe_base64, decode_bundle
 from types import SimpleNamespace
 config = SimpleNamespace(
     api_url=(os.environ.get("API_URL", "http://127.0.0.1:3000").strip()),
     proxy_content=(os.environ.get("PROXY_CONTENT", "TRUE").upper()=="TRUE"),
     socks5=(os.environ.get("SOCKS5", "").strip()),
+    # Residential SOCKS for VOD extract + same-origin HLS/media proxy (Oracle CF bypass).
+    vod_socks5=(os.environ.get("VOD_SOCKS5", "").strip()),
 )
 import html
+
+# Match vod_resolver UA — VixSrc/CF fingerprint path used at resolve time.
+_VOD_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+_VOD_PROXY_HOST_HINTS = (
+    "vixsrc.",
+    "videasy.",
+    "vidzee.",
+    "vidsrc.",
+    "vsembed.",
+    "2embed.",
+    "vidlink.",
+    "icefy.",
+    "cine.su",
+    "vaplayer.",
+    "brightpath",
+    "cloudnestra.",
+    "smashy",
+    "orchidpixel",
+    "neonhorizon",
+    "wanderlynest",
+)
+
+
+def _normalize_proxy_url(raw: str) -> Optional[str]:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    return raw if "://" in raw else f"socks5://{raw}"
 
 
 class Channel(BaseModel):
@@ -60,18 +93,24 @@ class StepDaddy:
             self._seg_prefetch_n = 3
         self._seg_prefetch_ttl = float(os.environ.get("VOD_SEGMENT_PREFETCH_TTL", "45"))
         self._seg_prefetch_sem = asyncio.Semaphore(2)
-        socks5 = config.socks5
-        if socks5 != "":
-            self._session = AsyncSession(
-                proxy="socks5://" + socks5,
-                timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0),
-                limits=httpx.Limits(max_keepalive_connections=8, max_connections=16, keepalive_expiry=45.0),
-            )
+        _timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0)
+        _limits = httpx.Limits(max_keepalive_connections=8, max_connections=16, keepalive_expiry=45.0)
+        live_proxy = _normalize_proxy_url(config.socks5)
+        # Legacy SOCKS5 values were host:port only; keep that join for live.
+        if config.socks5 and "://" not in config.socks5:
+            live_proxy = "socks5://" + config.socks5.strip()
+        if live_proxy:
+            self._session = AsyncSession(proxy=live_proxy, timeout=_timeout, limits=_limits)
         else:
-            self._session = AsyncSession(
-                timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0),
-                limits=httpx.Limits(max_keepalive_connections=8, max_connections=16, keepalive_expiry=45.0),
-            )
+            self._session = AsyncSession(timeout=_timeout, limits=_limits)
+        # Dedicated VOD egress (VOD_SOCKS5). Resolve already used this; proxy must too.
+        vod_proxy = _normalize_proxy_url(config.vod_socks5)
+        if vod_proxy and vod_proxy != live_proxy:
+            self._vod_session = AsyncSession(proxy=vod_proxy, timeout=_timeout, limits=_limits)
+        elif vod_proxy:
+            self._vod_session = self._session
+        else:
+            self._vod_session = None
         # Prefer Android gateway defaults (2026-08 domain-relay / GatewayConfig).
         # Stale Linux default was https://dlhd.pk; primary daddylive.eu may be down —
         # daddylive.li currently serves /api/channels (Android path).
@@ -339,6 +378,38 @@ class StepDaddy:
             headers["Origin"] = origin
         return headers
 
+    def _vod_headers(self, referer: str, origin: str | None = None) -> dict:
+        """Headers matching vod_resolver extract path (Chrome UA + Accept)."""
+        if not origin:
+            parsed = urlparse(referer)
+            if parsed.scheme and parsed.netloc:
+                origin = f"{parsed.scheme}://{parsed.netloc}"
+        headers = {
+            "User-Agent": _VOD_UA,
+            "Referer": referer,
+            "Accept": "*/*",
+        }
+        if origin:
+            headers["Origin"] = origin
+        return headers
+
+    @staticmethod
+    def _looks_like_vod_host(host_or_url: str | None) -> bool:
+        blob = (host_or_url or "").lower()
+        return any(h in blob for h in _VOD_PROXY_HOST_HINTS)
+
+    def _client_for_vod(self, referer_host: str | None = None, url: str = "") -> httpx.AsyncClient:
+        """Prefer VOD_SOCKS5 session for VOD CDN hosts; else live session."""
+        if self._vod_session is None:
+            return self._session
+        if self._looks_like_vod_host(referer_host) or self._looks_like_vod_host(url):
+            return self._vod_session
+        return self._session
+
+    def _vod_client(self) -> httpx.AsyncClient:
+        """Client for /vod/hls and /vod/file — always prefer residential SOCKS when set."""
+        return self._vod_session or self._session
+
     async def load_channels(self):
         channels = []
         last_err = None
@@ -372,7 +443,7 @@ class StepDaddy:
                                 meta = self._meta.get("18+" if channel_name.startswith("18+") else channel_name, {})
                                 logo = meta.get("logo", "")
                                 if logo:
-                                    logo = f"{config.api_url}/logo/{urlsafe_base64(logo)}"
+                                    logo = f"/logo/{urlsafe_base64(logo)}"
                                 channels.append(Channel(id=channel_id, name=channel_name, tags=meta.get("tags", []), logo=logo))
                             if channels:
                                 self._base_url = base
@@ -395,7 +466,7 @@ class StepDaddy:
                         meta = self._meta.get("18+" if channel_name.startswith("18+") else channel_name, {})
                         logo = meta.get("logo", "")
                         if logo:
-                            logo = f"{config.api_url}/logo/{urlsafe_base64(logo)}"
+                            logo = f"/logo/{urlsafe_base64(logo)}"
                         channels.append(Channel(id=channel_id, name=channel_name, tags=meta.get("tags", []), logo=logo))
                     if channels:
                         self._base_url = base
@@ -424,8 +495,32 @@ class StepDaddy:
         Keys still go through /key when proxying is on — AES needs the gateway Referer.
         """
         do_proxy = config.proxy_content if proxy_content is None else bool(proxy_content)
+        # Prefer same-origin relative /content and /key so stale API_URL (old VPS IP)
+        # cannot poison playlists. Absolute API_URL only when explicitly forced.
+        force_abs = (os.environ.get("PLAYLIST_ABSOLUTE_URLS") or "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        api_prefix = (config.api_url or "").rstrip("/") if force_abs else ""
         lines_out = []
         non_comment_count = 0
+
+        def _proxy_media(absolute_url: str) -> str:
+            return (
+                f"{api_prefix}/content/{encrypt(absolute_url)}"
+                f"/{encrypt(referer_host)}"
+            )
+
+        def _rewrite_tag_uris(line: str) -> str:
+            """Rewrite URI="..." on MEDIA / MAP / I-FRAME / SESSION-KEY style tags."""
+            def _sub(m: re.Match) -> str:
+                original = m.group(1)
+                absolute = urljoin(m3u8_url, original)
+                return f'URI="{_proxy_media(absolute)}"'
+
+            return re.sub(r'URI="([^"]*)"', _sub, line)
+
         for line in m3u8_text.split("\n"):
             line = line.strip()
             if line.startswith("#EXT-X-KEY:"):
@@ -434,20 +529,20 @@ class StepDaddy:
                     original_url = uri_match.group(1)
                     absolute_key_url = urljoin(m3u8_url, original_url)
                     if do_proxy:
-                        line = line.replace(
-                            original_url,
-                            f"{config.api_url}/key/{encrypt(absolute_key_url)}/{encrypt(referer_host)}",
+                        proxied = (
+                            f"{api_prefix}/key/{encrypt(absolute_key_url)}/{encrypt(referer_host)}"
                         )
+                        line = line.replace(original_url, proxied)
                     else:
                         line = line.replace(original_url, absolute_key_url)
+            elif line.startswith("#") and 'URI="' in line and do_proxy:
+                # EXT-X-MEDIA / EXT-X-MAP / EXT-X-I-FRAME-STREAM-INF audio+subs+init
+                line = _rewrite_tag_uris(line)
             elif line and not line.startswith("#"):
                 non_comment_count += 1
                 absolute_media_url = urljoin(m3u8_url, line)
                 if do_proxy:
-                    line = (
-                        f"{config.api_url}/content/{encrypt(absolute_media_url)}"
-                        f"/{encrypt(referer_host)}"
-                    )
+                    line = _proxy_media(absolute_media_url)
                 else:
                     line = absolute_media_url
             lines_out.append(line)
@@ -480,7 +575,9 @@ class StepDaddy:
                 break
         return urls
 
-    def _schedule_segment_prefetch(self, playlist_text: str, playlist_url: str, headers: dict) -> None:
+    def _schedule_segment_prefetch(
+        self, playlist_text: str, playlist_url: str, headers: dict, client: httpx.AsyncClient | None = None
+    ) -> None:
         if not self._seg_prefetch_enabled or self._seg_prefetch_n <= 0:
             return
         urls = self._media_segment_urls(playlist_text, playlist_url)
@@ -490,16 +587,20 @@ class StepDaddy:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
-        loop.create_task(self._prefetch_segments(urls, headers))
+        loop.create_task(self._prefetch_segments(urls, headers, client=client))
 
-    async def _prefetch_segments(self, urls: list[str], headers: dict) -> None:
+    async def _prefetch_segments(
+        self, urls: list[str], headers: dict, client: httpx.AsyncClient | None = None
+    ) -> None:
         self._purge_seg_cache()
         for url in urls:
             if url in self._seg_cache:
                 continue
             async with self._seg_prefetch_sem:
                 try:
-                    resp = await self._upstream_get(url, headers, stream=False, timeout=20.0)
+                    resp = await self._upstream_get(
+                        url, headers, stream=False, timeout=20.0, client=client
+                    )
                     if not self._upstream_ok(resp.status_code):
                         await resp.aclose()
                         continue
@@ -528,8 +629,11 @@ class StepDaddy:
         parsed = urlparse(referer)
         if not origin:
             origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else referer
-        headers = self._headers(referer, origin)
-        response = await self._upstream_get(manifest_url, headers, stream=False, timeout=60.0)
+        headers = self._vod_headers(referer, origin)
+        client = self._vod_client()
+        response = await self._upstream_get(
+            manifest_url, headers, stream=False, timeout=60.0, client=client
+        )
         if not self._upstream_ok(response.status_code):
             await response.aclose()
             raise ValueError(f"upstream_manifest_http_{response.status_code}")
@@ -540,7 +644,7 @@ class StepDaddy:
         if not stripped.startswith("#EXTM3U"):
             raise ValueError("upstream_not_hls")
         referer_host = parsed.netloc or referer
-        self._schedule_segment_prefetch(text, manifest_url, headers)
+        self._schedule_segment_prefetch(text, manifest_url, headers, client=client)
         return self.rewrite_playlist(text, manifest_url, referer_host).encode("utf-8")
 
     async def proxy_progressive(self, url: str, referer: str, origin: str | None = None, range_header: str | None = None):
@@ -548,12 +652,13 @@ class StepDaddy:
         parsed = urlparse(referer)
         if not origin:
             origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else referer
-        headers = self._headers(referer, origin)
+        headers = self._vod_headers(referer, origin)
         headers["Accept"] = "*/*"
         if range_header:
             headers["Range"] = range_header
-        req = self._session.build_request("GET", url, headers=headers, timeout=120.0)
-        return await self._session.send(req, stream=True, follow_redirects=True)
+        client = self._vod_client()
+        req = client.build_request("GET", url, headers=headers, timeout=120.0)
+        return await client.send(req, stream=True, follow_redirects=True)
 
     async def stream(self, channel_id: str):
         cached = await self._ensure_stream_cache(channel_id)
@@ -586,8 +691,17 @@ class StepDaddy:
         url = decrypt(url)
         host = decrypt(host)
         referer = host if "://" in host else f"https://{host}/"
-        origin = host.split("://", 1)[-1].split("/")[0]
-        response = await self._session.get(url, headers=self._headers(referer, origin), timeout=60)
+        if "://" in host:
+            origin = f"{urlparse(host).scheme}://{urlparse(host).netloc}"
+        else:
+            origin = f"https://{host.split('/')[0]}"
+        client = self._client_for_vod(host, url)
+        headers = (
+            self._vod_headers(referer, origin)
+            if client is self._vod_session
+            else self._headers(referer, origin)
+        )
+        response = await client.get(url, headers=headers, timeout=60)
         if response.status_code != 200:
             raise Exception(f"Failed to get key")
         return response.content
@@ -596,9 +710,20 @@ class StepDaddy:
         url = decrypt(path)
         referer_host = decrypt(host) if host else None
         if referer_host:
-            origin = referer_host.split("://", 1)[-1].split("/")[0]
-            referer = referer_host if "://" in referer_host else f"https://{referer_host}/"
-            headers = self._headers(referer, origin)
+            if "://" in referer_host:
+                referer = referer_host
+                parsed = urlparse(referer)
+                origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else referer
+            else:
+                bare = referer_host.split("/")[0]
+                referer = f"https://{bare}/"
+                origin = f"https://{bare}"
+            if self._vod_session is not None and (
+                self._looks_like_vod_host(referer_host) or self._looks_like_vod_host(url)
+            ):
+                headers = self._vod_headers(referer, origin)
+            else:
+                headers = self._headers(referer, origin)
         else:
             headers = self._headers()
         return url, referer_host, headers
@@ -607,9 +732,17 @@ class StepDaddy:
     def _upstream_ok(status_code: int) -> bool:
         return status_code in (200, 206)
 
-    async def _upstream_get(self, url: str, headers: dict, stream: bool, timeout: float = 60.0):
-        req = self._session.build_request("GET", url, headers=headers, timeout=timeout)
-        response = await self._session.send(req, stream=stream, follow_redirects=True)
+    async def _upstream_get(
+        self,
+        url: str,
+        headers: dict,
+        stream: bool,
+        timeout: float = 60.0,
+        client: httpx.AsyncClient | None = None,
+    ):
+        session = client or self._session
+        req = session.build_request("GET", url, headers=headers, timeout=timeout)
+        response = await session.send(req, stream=stream, follow_redirects=True)
         status = response.status_code
         # Hard CDN/auth blocks will not recover on a 250ms retry — don't double-hold a worker.
         if status in (403, 429, 401):
@@ -617,8 +750,8 @@ class StepDaddy:
         if not self._upstream_ok(status) and stream:
             await response.aclose()
             await asyncio.sleep(0.25)
-            req = self._session.build_request("GET", url, headers=headers, timeout=timeout)
-            response = await self._session.send(req, stream=stream, follow_redirects=True)
+            req = session.build_request("GET", url, headers=headers, timeout=timeout)
+            response = await session.send(req, stream=stream, follow_redirects=True)
         return response
 
     async def fetch_content(self, path: str, host: str | None = None):
@@ -627,6 +760,7 @@ class StepDaddy:
         kind is "playlist" (bytes body) or "stream" (async byte iterator).
         """
         url, referer_host, headers = self._content_request_headers(path, host)
+        client = self._client_for_vod(referer_host, url)
         is_m3u8_url = ".m3u8" in url.split("?", 1)[0].lower()
         if not is_m3u8_url:
             cached = self._cached_segment(url)
@@ -637,7 +771,9 @@ class StepDaddy:
                     yield cached
 
                 return "stream", ctype, 200, _from_cache()
-        response = await self._upstream_get(url, headers, stream=not is_m3u8_url, timeout=60.0)
+        response = await self._upstream_get(
+            url, headers, stream=not is_m3u8_url, timeout=60.0, client=client
+        )
         status_code = response.status_code
         if not self._upstream_ok(status_code):
             err_snip = b""
@@ -651,7 +787,9 @@ class StepDaddy:
             await response.aclose()
             # Hard CDN/auth blocks: no second fetch (matches _upstream_get thrash guard).
             if is_m3u8_url and status_code not in (403, 429, 401):
-                response = await self._upstream_get(url, headers, stream=False, timeout=60.0)
+                response = await self._upstream_get(
+                    url, headers, stream=False, timeout=60.0, client=client
+                )
                 status_code = response.status_code
                 if not self._upstream_ok(status_code):
                     try:
@@ -671,7 +809,7 @@ class StepDaddy:
             text = body.decode("utf-8", errors="replace")
             text = self._sanitize_live_playlist(text)
             rh = referer_host.split("://", 1)[-1].split("/")[0] if referer_host else urlparse(url).netloc
-            self._schedule_segment_prefetch(text, url, headers)
+            self._schedule_segment_prefetch(text, url, headers, client=client)
             text = self.rewrite_playlist(text, url, rh)
             return "playlist", "application/vnd.apple.mpegurl", 200, text.encode("utf-8")
 

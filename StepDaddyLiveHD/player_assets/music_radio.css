@@ -1,0 +1,173 @@
+/* Music Radio Browser — mountable into /music home sheet */
+.sd-music-radio {
+  --mr-bg: #0b0d12;
+  --mr-panel: #12151c;
+  --mr-text: #e8eaef;
+  --mr-muted: #9aa3b2;
+  --mr-accent: #3b82f6;
+  --mr-line: rgba(255, 255, 255, 0.08);
+  color: var(--mr-text);
+  font: 500 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  contain: layout style;
+}
+.sd-music-radio * { box-sizing: border-box; }
+.sd-music-radio .mr-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px 4px;
+  position: sticky; top: 0; z-index: 2;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, var(--mr-bg) 70%, transparent);
+}
+.sd-music-radio .mr-title { font-size: 16px; font-weight: 700; letter-spacing: 0.01em; }
+.sd-music-radio .mr-sub { color: var(--mr-muted); font-size: 11px; font-weight: 500; }
+.sd-music-radio .mr-back {
+  min-width: 40px; min-height: 40px; border: 0; border-radius: 12px;
+  background: var(--mr-panel); color: var(--mr-text); cursor: pointer;
+}
+.sd-music-radio .mr-scroll {
+  overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain; overscroll-behavior-y: none;
+  touch-action: none;
+  contain: layout style;
+  scrollbar-width: none; display: flex; gap: 8px; padding: 2px 12px 8px;
+  scroll-snap-type: x proximity;
+  scroll-behavior: auto;
+}
+.sd-music-radio .mr-scroll::-webkit-scrollbar { display: none; }
+.sd-music-radio .mr-chip {
+  flex: 0 0 auto; scroll-snap-align: start;
+  min-height: 40px; padding: 8px 12px; border-radius: 999px;
+  border: 1px solid var(--mr-line); background: var(--mr-panel);
+  color: var(--mr-text); font-weight: 600; cursor: pointer;
+  touch-action: none;
+}
+.sd-music-radio .mr-chip.active { border-color: var(--mr-accent); background: rgba(59,130,246,.18); }
+.sd-music-radio .mr-body,
+.sd-music-radio .mr-main {
+  flex: 1 1 auto; min-height: 0;
+  overflow-x: hidden; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: none;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  contain: layout style;
+  padding-bottom: 12px;
+}
+.sd-music-radio .mr-section { padding: 4px 12px 12px; overflow: hidden; }
+.sd-music-radio .mr-section h3 {
+  margin: 0 0 8px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--mr-muted); font-weight: 700;
+}
+.sd-music-radio .mr-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 8px;
+}
+.sd-music-radio .mr-card, .sd-music-radio .mr-station {
+  border: 1px solid var(--mr-line); background: var(--mr-panel);
+  border-radius: 14px; padding: 10px; text-align: left; color: inherit;
+  cursor: pointer; min-height: 60px; touch-action: manipulation;
+}
+.sd-music-radio .mr-card:active, .sd-music-radio .mr-station:active { transform: scale(0.98); }
+.sd-music-radio .mr-card .n, .sd-music-radio .mr-station .n {
+  font-weight: 700; font-size: 14px; display: block;
+}
+.sd-music-radio .mr-card .c, .sd-music-radio .mr-station .c {
+  color: var(--mr-muted); font-size: 12px; margin-top: 4px; display: block;
+}
+.sd-music-radio .mr-station {
+  display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: center;
+  width: 100%; margin-bottom: 6px;
+}
+.sd-music-radio .mr-station-end {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.sd-music-radio .mr-station .play-dot {
+  appearance: none; border: 0;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--mr-accent); display: grid; place-items: center; color: #fff; font-size: 14px;
+  cursor: pointer;
+}
+.sd-music-radio .mr-station img {
+  width: 52px; height: 52px; border-radius: 10px; object-fit: cover; background: #1a1f2a;
+}
+.sd-music-radio .mr-station img[src^="data:image/svg"] {
+  object-fit: contain; background: transparent;
+}
+.sd-music-radio .mr-station.dead { opacity: 0.45; }
+/* Legacy Radio dock — unified .sd-music-player owns playback chrome */
+.sd-music-radio .mr-player { display: none !important; }
+.sd-music-radio .mr-player .meta { flex: 1; min-width: 0; }
+.sd-music-radio .mr-player .meta .n {
+  font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sd-music-radio .mr-player .meta .np,
+.sd-music-radio .mr-player .meta .nx {
+  color: var(--mr-muted); font-size: 12px; margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sd-music-radio .mr-player .meta .np { color: #c7d2fe; }
+.sd-music-radio .mr-station.seeded {
+  border-color: rgba(59, 130, 246, 0.35);
+}
+.sd-music-radio .mr-player audio, .sd-music-radio .mr-player video {
+  width: 0; height: 0; opacity: 0; position: absolute; pointer-events: none;
+}
+.sd-music-radio .mr-player button {
+  min-width: 44px; min-height: 44px; border: 0; border-radius: 12px;
+  background: var(--mr-accent); color: #fff; font-weight: 700; cursor: pointer;
+}
+.sd-music-radio .mr-player button.ghost { background: var(--mr-panel); color: var(--mr-text); }
+.sd-music-radio .mr-empty, .sd-music-radio .mr-err {
+  padding: 18px 12px; color: var(--mr-muted); text-align: center;
+}
+.sd-music-radio .mr-err { color: #f87171; }
+.sd-music-radio .mr-loading { padding: 16px 12px; color: var(--mr-muted); }
+@media (max-width: 520px) {
+  .sd-music-radio .mr-grid { grid-template-columns: 1fr 1fr; }
+}
+.sd-music-radio .mr-skeleton .mr-card.sk,
+.sd-music-radio .mr-skeleton .mr-station.sk {
+  opacity: 0.45;
+  pointer-events: none;
+  min-height: 52px;
+  background: linear-gradient(90deg, #1a2332 0%, #243044 50%, #1a2332 100%);
+  background-size: 200% 100%;
+  animation: mr-skel 1.1s ease-in-out infinite;
+  border: 0;
+}
+.sd-music-radio .mr-cache-hint {
+  padding: 6px 12px 12px;
+  color: var(--mr-muted);
+  font-size: 11px;
+}
+@keyframes mr-skel {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* Stations directory (focus chip) */
+.sd-music-radio .mr-stations-dir { padding: 0 0 16px; }
+.sd-music-radio .mr-stations-search {
+  display: flex; gap: 8px; padding: 0 12px 10px; align-items: center;
+}
+.sd-music-radio .mr-stations-search input {
+  flex: 1; min-width: 0; appearance: none;
+  border: 1px solid var(--mr-line, #2a3344); border-radius: 12px;
+  background: rgba(255,255,255,0.04); color: var(--mr-text, #e8eaef);
+  font: 500 14px/1.2 inherit; padding: 10px 12px; min-height: 40px;
+}
+.sd-music-radio .mr-stations-search button {
+  appearance: none; border: 1px solid rgba(59, 130, 246, 0.45);
+  border-radius: 12px; background: rgba(59, 130, 246, 0.22);
+  color: var(--mr-text, #e8eaef); font: 700 13px/1 inherit;
+  padding: 10px 14px; min-height: 40px; cursor: pointer;
+}
