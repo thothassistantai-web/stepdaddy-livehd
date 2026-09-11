@@ -172,7 +172,7 @@
 
   function applyShuffleToUpNext() {
     if (!session.shuffle) return;
-    // Smart Shuffle: taste-rank then light shuffle of ties via rank noise.
+    // Smart Shuffle: taste-rank (+ cold-start defaults) then rank noise for ties — not plain random.
     if (session.autoplayBias && window.SDMusicTaste && typeof window.SDMusicTaste.rankItems === "function") {
       try {
         var entry =
@@ -181,6 +181,7 @@
           window.SDMusicTaste.rankItems(session.upNext, {
             entryPath: entry,
             seedItems: session.now ? [session.now] : [],
+            smartShuffle: true,
           }) || session.upNext;
         return;
       } catch (e) {}
@@ -723,6 +724,7 @@
           entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
           seedItems: session.now ? [session.now] : [],
           softBoost: !session.autoplayBias,
+          smartShuffle: !!session.autoplayBias,
         };
         session.autoplay = window.SDMusicTaste.rankItems(session.autoplay, rankOpts) || session.autoplay;
       } catch (e) {}

@@ -25362,7 +25362,24 @@
       var items = candidates.map(function (i) {
         return queue[i];
       });
-      var ranked = window.SDMusicTaste.rankItems(items);
+      var seed = cur >= 0 && queue[cur] ? [queue[cur]] : [];
+      var entryPath = "";
+      try {
+        var UQ = window.SDMusicUnifiedQueue;
+        var sess = UQ && typeof UQ.getSession === "function" ? UQ.getSession() : null;
+        entryPath =
+          (sess && sess.source && (sess.source.entryPath || sess.source.type)) ||
+          this.state.entryPath ||
+          this.state.sourceType ||
+          "listen";
+      } catch (e) {
+        entryPath = "listen";
+      }
+      var ranked = window.SDMusicTaste.rankItems(items, {
+        smartShuffle: true,
+        seedItems: seed,
+        entryPath: entryPath,
+      });
       var recent = {};
       try {
         (window.SDMusicTaste.getRecent(16) || []).forEach(function (r) {
@@ -25373,20 +25390,23 @@
       var pick = null;
       for (var r = 0; r < ranked.length; r++) {
         var t = ranked[r];
-        var vid = t && t.videoId;
+        var vid = t && (t.videoId || t.id);
         if (!vid || recent[String(vid)]) continue;
         var idx = queue.findIndex(function (q) {
-          return q && q.videoId === vid;
+          return q && String(q.videoId || q.id || "") === String(vid);
         });
         if (idx >= 0 && idx !== cur) {
           pick = idx;
           break;
         }
       }
-      if (pick == null && ranked[0] && ranked[0].videoId) {
-        pick = queue.findIndex(function (q) {
-          return q && q.videoId === ranked[0].videoId;
-        });
+      if (pick == null && ranked[0]) {
+        var rid = ranked[0].videoId || ranked[0].id;
+        if (rid) {
+          pick = queue.findIndex(function (q) {
+            return q && String(q.videoId || q.id || "") === String(rid);
+          });
+        }
       }
       if (pick != null && pick >= 0) return pick;
     }
@@ -25417,10 +25437,12 @@
       var pick = idxs[Math.floor(Math.random() * idxs.length)];
       if (mode === "smart-shuffle" && window.SDMusicTaste) {
         try {
+          var seedSt = cur >= 0 && list[cur] ? [list[cur]] : [];
           var ranked = window.SDMusicTaste.rankItems(
             idxs.map(function (i) {
               return list[i];
-            })
+            }),
+            { smartShuffle: true, seedItems: seedSt, entryPath: "radio" }
           );
           if (ranked && ranked[0]) {
             var id = ranked[0].stationuuid || ranked[0].id;
@@ -26522,8 +26544,20 @@
             delete meta[k];
           });
       }
+      // Keep id list in sync so rankItems liked[] boost applies (not meta-only).
+      try {
+        var favs = readFavIds();
+        if (favs.indexOf(id) < 0) favs.unshift(id);
+        localStorage.setItem(LS_FAV, JSON.stringify(favs.slice(0, MAX_LIKES)));
+      } catch (e) {}
     } else {
       delete meta[id];
+      try {
+        var favs2 = readFavIds().filter(function (x) {
+          return String(x) !== id;
+        });
+        localStorage.setItem(LS_FAV, JSON.stringify(favs2));
+      } catch (e) {}
     }
     writeFavMeta(meta);
   }
@@ -26567,10 +26601,154 @@
     var p = data.plays[key] || {};
     var c = data.completes[key] || {};
     var s = data.skips[key] || {};
+    // No personal history for this key → 0 (cold-start defaults handle ordering).
+    if (!(p.n || c.n || s.n || p.w || c.w || s.w)) return 0;
     var recency = Math.max(p.last || 0, c.last || 0, s.last || 0);
     var ageH = recency ? (now() - recency) / 3600000 : 999;
     var recencyBoost = ageH < 24 ? 3 : ageH < 168 ? 1.5 : ageH < 720 ? 0.6 : 0.15;
     return (p.n || 0) * 1.2 + (c.n || 0) * 2.5 + (p.w || 0) * 0.2 - (s.n || 0) * 1.8 + recencyBoost;
+  }
+
+  /** Stable 0..1 noise so equal taste scores don't preserve input order (Smart ≠ Off). */
+  function rankNoise(key, idx) {
+    var s = String(key || "x") + "#" + String(idx || 0);
+    var h = 2166136261;
+    for (var i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return ((h >>> 0) % 1000) / 1000;
+  }
+
+  function artistTokens(norm) {
+    var raw = String((norm && (norm.artist || norm.subtitle)) || "").toLowerCase();
+    return raw
+      .split(/[,&/|]+/)
+      .map(function (x) {
+        return x.trim();
+      })
+      .filter(function (x) {
+        return x.length >= 2;
+      });
+  }
+
+  function parseYear(norm, it) {
+    var y = (norm && norm.year) || (it && (it.year || it.releaseYear)) || "";
+    y = parseInt(String(y).slice(0, 4), 10);
+    return isFinite(y) && y > 1900 && y < 2100 ? y : 0;
+  }
+
+  /**
+   * Soft popularity / chart bias from common item fields (YTM / Radio Browser).
+   * Missing → mild mid-list prior so unknown tracks aren't zeroed out.
+   */
+  function popularityBoost(it, norm) {
+    var raw = null;
+    if (it) {
+      if (it.popularity != null) raw = it.popularity;
+      else if (it.viewCount != null) raw = it.viewCount;
+      else if (it.views != null) raw = it.views;
+      else if (it.listeners != null) raw = it.listeners;
+      else if (it.votes != null) raw = it.votes;
+      else if (it.score != null) raw = it.score;
+    }
+    if (raw == null && it && it.subtitle) {
+      var m = String(it.subtitle).match(/([\d,.]+)\s*(k|m|b)?\s*(view|play|listen|vote)/i);
+      if (m) {
+        var n = parseFloat(m[1].replace(/,/g, ""));
+        if (isFinite(n)) {
+          var mul = { k: 1e3, m: 1e6, b: 1e9 }[String(m[2] || "").toLowerCase()] || 1;
+          raw = n * mul;
+        }
+      }
+    }
+    if (raw == null || !isFinite(Number(raw))) return 0.35;
+    var v = Number(raw);
+    if (v <= 1 && v >= 0) return v * 2.2; // already 0–1 popularity
+    // log compress large view/listen counts
+    return Math.min(2.4, Math.log10(Math.max(10, v)) / 3.2);
+  }
+
+  /**
+   * Cold-start / gap-fill defaults (empty or thin taste profile):
+   * 1) Prefer same artist ecosystem as seed/now
+   * 2) Prefer same genre + nearby era (±6y) of seeds
+   * 3) Soft popularity / chart bias
+   * 4) Avoid immediate repeats (recent / lastPlayed / avoidKeys)
+   * 5) Light time-of-day bias (night → older years; day → popular)
+   * Documented here; applied via coldStartBoost + recentPenalty + rankNoise.
+   */
+  function coldStartBoost(it, norm, seedNorms, scale) {
+    scale = scale == null ? 1 : scale;
+    if (!scale) return 0;
+    var s = 0;
+    var seeds = seedNorms || [];
+    var toks = artistTokens(norm);
+    var year = parseYear(norm, it);
+    var genre = String((norm && norm.genre) || (it && it.genre) || "").toLowerCase();
+
+    seeds.forEach(function (seed) {
+      if (!seed) return;
+      var st = artistTokens(seed);
+      st.forEach(function (a) {
+        toks.forEach(function (b) {
+          if (a === b || (a.length >= 4 && b.indexOf(a) >= 0) || (b.length >= 4 && a.indexOf(b) >= 0)) {
+            s += 2.4;
+          }
+        });
+      });
+      // Same artistId / channel when present on raw items
+      if (it && seed._rawArtistId && it.artistId && String(it.artistId) === String(seed._rawArtistId)) {
+        s += 2.8;
+      }
+      var sg = String(seed.genre || "").toLowerCase();
+      if (genre && sg && (genre === sg || genre.indexOf(sg) >= 0 || sg.indexOf(genre) >= 0)) s += 1.6;
+      var sy = parseYear(seed, null);
+      if (year && sy) {
+        var d = Math.abs(year - sy);
+        if (d === 0) s += 1.4;
+        else if (d <= 3) s += 1.0;
+        else if (d <= 6) s += 0.55;
+        else if (d <= 12) s += 0.2;
+      }
+    });
+
+    s += popularityBoost(it, norm) * 0.85;
+
+    // Light time-of-day prior (no personal temporal history required).
+    var hour = new Date().getHours();
+    var night = hour >= 22 || hour < 6;
+    if (night) {
+      if (year && year < 2012) s += 0.45;
+      else if (year && year >= 2020) s -= 0.15;
+    } else if (hour >= 7 && hour < 18) {
+      s += popularityBoost(it, norm) * 0.25;
+    }
+
+    return Math.min(6.5, s) * scale;
+  }
+
+  function recentPenalty(data, key, opts) {
+    if (!key) return 0;
+    var smart = !!(opts && opts.smartShuffle);
+    var pen = 0;
+    if (data.lastPlayedKey === key) pen = Math.max(pen, smart ? 12 : 4.2);
+    var avoid = opts && opts.avoidKeys;
+    if (avoid) {
+      var hit = false;
+      if (typeof avoid.indexOf === "function") hit = avoid.indexOf(key) >= 0;
+      else if (avoid[key]) hit = true;
+      if (hit) pen = Math.max(pen, smart ? 7.5 : 3.6);
+    }
+    var recent = data.recent || [];
+    for (var i = 0; i < Math.min(recent.length, 14); i++) {
+      if (itemKey(recent[i]) === key) {
+        var base = (smart ? 6.2 : 3.4) - i * (smart ? 0.35 : 0.18);
+        pen = Math.max(pen, Math.max(0.8, base));
+        break;
+      }
+    }
+    return pen;
   }
 
   function temporalBoost(data, key, artist) {
@@ -26650,9 +26828,15 @@
   /**
    * Rank candidates. opts:
    *  - entryPath: soft-boost paths that match habitual entry
-   *  - seedKeys / seedItems: co-occurrence anchors (now + recent)
+   *  - seedKeys / seedItems: co-occurrence + cold-start artist/genre/era anchors
    *  - contextBias: 0–1 strength for temporal/entry (default 1)
    *  - softBoost: smaller effect (Home / search)
+   *  - smartShuffle: stronger cold-start + rank noise (Smart Shuffle path)
+   *  - avoidKeys: extra immediate-repeat penalties
+   *
+   * Learning (when history exists): skips down-rank via scoreKey; completes/likes
+   * up-rank; co-occurrence + entry path + temporal boost. Cold start still applies
+   * as a gap-fill prior so Smart Shuffle never collapses to Off/plain Shuffle.
    */
   function rankItems(items, opts) {
     opts = opts || {};
@@ -26662,19 +26846,33 @@
       liked[String(id)] = true;
     });
     var seedKeys = (opts.seedKeys || []).slice();
+    var seedNorms = [];
     (opts.seedItems || []).forEach(function (it) {
-      var k = itemKey(normalizeItem(it) || it);
+      var norm = normalizeItem(it) || it;
+      var k = itemKey(norm);
       if (k) seedKeys.push(k);
+      if (norm) {
+        if (it && (it.artistId || (it.artistIds && it.artistIds[0]))) {
+          norm._rawArtistId = it.artistId || it.artistIds[0];
+        }
+        seedNorms.push(norm);
+      }
     });
     if (!seedKeys.length && data.lastPlayedKey) seedKeys.push(data.lastPlayedKey);
     (data.recent || []).slice(0, 6).forEach(function (r) {
       var k = itemKey(r);
       if (k) seedKeys.push(k);
+      if (r && !seedNorms.length) seedNorms.push(r);
     });
     var entry = normalizeEntryPath(opts.entryPath || "");
     var bias = opts.contextBias == null ? 1 : Number(opts.contextBias);
     if (opts.softBoost) bias *= 0.55;
     if (!isFinite(bias)) bias = 1;
+    var signaled = hasSignal(data);
+    // Full cold-start prior when empty; softer gap-fill when taste already exists.
+    var coldScale = opts.smartShuffle ? (signaled ? 0.55 : 1.15) : signaled ? 0.35 : 1.0;
+    if (opts.softBoost) coldScale *= 0.65;
+    var noiseAmp = opts.smartShuffle ? 0.55 : 0.22;
 
     var ranked = dedupeItems(items || [])
       .map(function (it, idx) {
@@ -26704,7 +26902,11 @@
           // Prefer candidates that themselves came from matching surfaces when tagged
           if (norm.entryPath && norm.entryPath === entry) base += 0.6 * bias;
         }
-        return { item: it, score: base - idx * 0.01 };
+        base += coldStartBoost(it, norm, seedNorms, coldScale);
+        base -= recentPenalty(data, key, opts);
+        // Tie-break noise: Smart Shuffle must not equal Straight Off input order.
+        base += rankNoise(key, idx) * noiseAmp;
+        return { item: it, score: base - idx * 0.002 };
       })
       .sort(function (a, b) {
         return b.score - a.score;
@@ -27959,7 +28161,7 @@
 
   function applyShuffleToUpNext() {
     if (!session.shuffle) return;
-    // Smart Shuffle: taste-rank then light shuffle of ties via rank noise.
+    // Smart Shuffle: taste-rank (+ cold-start defaults) then rank noise for ties — not plain random.
     if (session.autoplayBias && window.SDMusicTaste && typeof window.SDMusicTaste.rankItems === "function") {
       try {
         var entry =
@@ -27968,6 +28170,7 @@
           window.SDMusicTaste.rankItems(session.upNext, {
             entryPath: entry,
             seedItems: session.now ? [session.now] : [],
+            smartShuffle: true,
           }) || session.upNext;
         return;
       } catch (e) {}
@@ -28510,6 +28713,7 @@
           entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
           seedItems: session.now ? [session.now] : [],
           softBoost: !session.autoplayBias,
+          smartShuffle: !!session.autoplayBias,
         };
         session.autoplay = window.SDMusicTaste.rankItems(session.autoplay, rankOpts) || session.autoplay;
       } catch (e) {}

@@ -888,7 +888,24 @@
       var items = candidates.map(function (i) {
         return queue[i];
       });
-      var ranked = window.SDMusicTaste.rankItems(items);
+      var seed = cur >= 0 && queue[cur] ? [queue[cur]] : [];
+      var entryPath = "";
+      try {
+        var UQ = window.SDMusicUnifiedQueue;
+        var sess = UQ && typeof UQ.getSession === "function" ? UQ.getSession() : null;
+        entryPath =
+          (sess && sess.source && (sess.source.entryPath || sess.source.type)) ||
+          this.state.entryPath ||
+          this.state.sourceType ||
+          "listen";
+      } catch (e) {
+        entryPath = "listen";
+      }
+      var ranked = window.SDMusicTaste.rankItems(items, {
+        smartShuffle: true,
+        seedItems: seed,
+        entryPath: entryPath,
+      });
       var recent = {};
       try {
         (window.SDMusicTaste.getRecent(16) || []).forEach(function (r) {
@@ -899,20 +916,23 @@
       var pick = null;
       for (var r = 0; r < ranked.length; r++) {
         var t = ranked[r];
-        var vid = t && t.videoId;
+        var vid = t && (t.videoId || t.id);
         if (!vid || recent[String(vid)]) continue;
         var idx = queue.findIndex(function (q) {
-          return q && q.videoId === vid;
+          return q && String(q.videoId || q.id || "") === String(vid);
         });
         if (idx >= 0 && idx !== cur) {
           pick = idx;
           break;
         }
       }
-      if (pick == null && ranked[0] && ranked[0].videoId) {
-        pick = queue.findIndex(function (q) {
-          return q && q.videoId === ranked[0].videoId;
-        });
+      if (pick == null && ranked[0]) {
+        var rid = ranked[0].videoId || ranked[0].id;
+        if (rid) {
+          pick = queue.findIndex(function (q) {
+            return q && String(q.videoId || q.id || "") === String(rid);
+          });
+        }
       }
       if (pick != null && pick >= 0) return pick;
     }
@@ -943,10 +963,12 @@
       var pick = idxs[Math.floor(Math.random() * idxs.length)];
       if (mode === "smart-shuffle" && window.SDMusicTaste) {
         try {
+          var seedSt = cur >= 0 && list[cur] ? [list[cur]] : [];
           var ranked = window.SDMusicTaste.rankItems(
             idxs.map(function (i) {
               return list[i];
-            })
+            }),
+            { smartShuffle: true, seedItems: seedSt, entryPath: "radio" }
           );
           if (ranked && ranked[0]) {
             var id = ranked[0].stationuuid || ranked[0].id;

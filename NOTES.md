@@ -1,3 +1,10 @@
+## Music Smart Shuffle field + cold-start 20260911f
+- Field-tested Smart Shuffle vs Off vs plain Shuffle; was near no-op on empty taste (rank ≈ input order).
+- Cold-start defaults in `SDMusicTaste.rankItems`: same-artist/genre/era as seed, soft popularity, avoid immediate repeats, light time-of-day, rank noise (Smart ≠ Off).
+- Learning path wired into Smart Shuffle specifically (`smartShuffle: true` on UQ Up Next + player next/prev + radio dial).
+- `recordLike` syncs fav id list so likes up-rank; unit smoke `_smoke_smart_shuffle.js`.
+- Report: /tmp/music-smart-shuffle-field.json
+
 ## Music S21 viewport fit 20260911e
 - Root cause: `.music-home` used `98dvh` + `.vod-catalog` `transform` trapping `.smp-sheet` fixed positioning; sheet height used full `visualViewport` → ~17px top gap + bottom clip on S21 WebAPK.
 - Fix: full-bleed Music catalog (`100dvh` / `--music-vh`); expanded host `transform: none`; sheet fills host / VV; video art uses 16:9 contain; `_syncViewport` clamps to catalog client box.
