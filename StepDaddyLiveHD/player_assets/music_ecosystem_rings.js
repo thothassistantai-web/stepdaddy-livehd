@@ -228,6 +228,8 @@
     });
     try {
       if (window.SDMusicTaste && typeof window.SDMusicTaste.rankItems === "function") {
+        var tasteReady =
+          typeof window.SDMusicTaste.hasSignal === "function" && window.SDMusicTaste.hasSignal();
         list.forEach(function (p) {
           var probe = [{ videoId: "parent-" + (p.artistId || p.artistName), artists: [p.artistName], artist: p.artistName }];
           var ranked = window.SDMusicTaste.rankItems(probe, {
@@ -235,9 +237,11 @@
             seedItems: opts.seedItems || [],
             entryPath: opts.entryPath || "playlist",
           });
-          // Presence stays primary; taste nudges weight slightly.
+          // Presence stays primary; taste nudges weight slightly only when profile exists.
           p.weight += Math.min(3, (p.count || 1) * 0.15);
-          if (ranked && ranked[0] && ranked[0]._tasteScore) p.weight += Math.min(2, ranked[0]._tasteScore / 10);
+          if (tasteReady && ranked && ranked[0] && ranked[0]._tasteScore) {
+            p.weight += Math.min(2, ranked[0]._tasteScore / 10);
+          }
         });
       }
     } catch (e) {}

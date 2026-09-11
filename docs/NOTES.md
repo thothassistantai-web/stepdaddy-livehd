@@ -1,3 +1,10 @@
+## Music realtime ring steer + anti-repeat + smart shuffle 20260911k
+- Realtime ring progression from like/unlike, skip-vs-dwell, queue-remove → `SDMusicSessionSignals` steers Autoplay softCaps / preferRing / parent weights.
+- Anti-repeat: full session history blocklist, taste-recent suppress, queue-remove suppress, Autoplay↔Up Next↔Smart Shuffle dedupe; ring-10 may replay only when exhausted.
+- Smart Shuffle predictive weights: likes, skips, dwell/completes, co-occurrence, TOD, entry path, multi-parent vibe (CoSeRNN / YTM / Spotify Smart Shuffle takeaways).
+- Split: `music_session_signals.js`, `music_uq_autoplay.js` (UQ kept <1k). Smoke: `_smoke_ring_steer_antirepeat.js`.
+- Report: `/tmp/music-rings-realtime-antirepeat-smart.json`.
+
 ## Music likes → taste learning 20260911j
 - Field: library `likeTrack` saved likes but never called `SDMusicTaste.recordLike`, so hearts/library likes did not move Smart Shuffle / Home soft-boost / Autoplay ranking.
 - Fix: `likeTrack` bridges into `recordLike`; `recordLike` idempotently bumps artist/genre weights (likes alone teach related soft-rank).

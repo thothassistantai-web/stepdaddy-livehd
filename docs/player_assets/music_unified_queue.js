@@ -76,6 +76,21 @@
   }
 
   function emptySession() {
+    var steer =
+      window.SDMusicSessionSignals && typeof window.SDMusicSessionSignals.emptySteer === "function"
+        ? window.SDMusicSessionSignals.emptySteer()
+        : {
+            v: 1,
+            preferRing: 5,
+            stayBias: 0,
+            ringScores: {},
+            parentBoosts: {},
+            parentSuppress: {},
+            suppressIds: {},
+            sessionPlayed: {},
+            signalLog: [],
+            updatedAt: 0,
+          };
     return {
       v: 1,
       source: null, // { type, id, title, order[], startTrackId, artistId, artistName, entryPath }
@@ -93,6 +108,7 @@
       positionSec: 0,
       layer: "source", // source | autoplay
       ecosystemPending: false,
+      ringSteer: steer,
       updatedAt: 0,
     };
   }
@@ -162,6 +178,11 @@
       if (!data || data.v !== 1) return false;
       session = Object.assign(emptySession(), data);
       session.autoplayEnabled = readAutoplayPref();
+      try {
+        if (window.SDMusicSessionSignals && typeof window.SDMusicSessionSignals.hydrateFromSession === "function") {
+          window.SDMusicSessionSignals.hydrateFromSession(session);
+        }
+      } catch (eH) {}
       return !!(session.now && trackId(session.now));
     } catch (e) {
       return false;
@@ -203,16 +224,34 @@
       try {
         var entry =
           (session.source && (session.source.entryPath || session.source.type)) || "listen";
+        var avoid = [];
+        try {
+          if (window.SDMusicSessionSignals) {
+            var ex = window.SDMusicSessionSignals.buildExcludeMap(session, { allowSessionReplay: false });
+            // Don't exclude current upNext members from themselves — only history/suppress/recent.
+            (session.upNext || []).forEach(function (t) {
+              var id = trackId(t);
+              if (id && ex[id] === "upNext") delete ex[id];
+            });
+            avoid = window.SDMusicSessionSignals.avoidKeysList(ex);
+          }
+        } catch (eEx) {}
         session.upNext =
           window.SDMusicTaste.rankItems(session.upNext, {
             entryPath: entry,
             seedItems: session.now ? [session.now] : [],
             smartShuffle: true,
+            avoidKeys: avoid,
+            parents: session.parents || [],
+            multiParent: !!session.multiParent,
           }) || session.upNext;
+        // Dedupe Up Next after rank (anti-repeat hardening).
+        session.upNext = dedupeKeepOrder(session.upNext);
         return;
       } catch (e) {}
     }
     shuffleInPlace(session.upNext);
+    session.upNext = dedupeKeepOrder(session.upNext);
   }
 
   function extendUpNext(tracks, opts) {
@@ -273,9 +312,18 @@
   function scheduleArtistEcosystem(meta, seeds) { return uqEco().scheduleArtistEcosystem(meta, seeds); }
   function scheduleMultiParentEcosystem(parents, seeds) { return uqEco().scheduleMultiParentEcosystem(parents, seeds); }
 
-  function recentIds() {
+  function recentIds(opts) {
+    opts = opts || {};
+    if (window.SDMusicSessionSignals && typeof window.SDMusicSessionSignals.buildExcludeMap === "function") {
+      try {
+        return window.SDMusicSessionSignals.buildExcludeMap(session, {
+          allowSessionReplay: !!opts.allowSessionReplay,
+        });
+      } catch (e) {}
+    }
     var ids = Object.create(null);
-    (session.history || []).slice(-24).forEach(function (t) {
+    // Full session history (anti-repeat) — not just last 24.
+    (session.history || []).forEach(function (t) {
       var id = trackId(t);
       if (id) ids[id] = 1;
     });
@@ -360,6 +408,13 @@
     session.layer = "source";
     session.positionSec = 0;
     session.ecosystemPending = false;
+    // Fresh ring-steer / suppress for new source session; seed played with start track.
+    try {
+      if (window.SDMusicSessionSignals) {
+        session.ringSteer = window.SDMusicSessionSignals.emptySteer();
+        window.SDMusicSessionSignals.markSessionPlayed(session.ringSteer, session.now);
+      }
+    } catch (eSteer) {}
 
     // Apply play-mode mapping
     var mode = opts.playMode;
@@ -455,7 +510,29 @@
     var list = sectionList(section);
     if (!list || index < 0 || index >= list.length) return null;
     var removed = list.splice(index, 1)[0] || null;
+    if (removed && window.SDMusicSessionSignals && typeof window.SDMusicSessionSignals.onRemove === "function") {
+      try {
+        window.SDMusicSessionSignals.onRemove(session, removed);
+      } catch (e) {}
+    }
+    // Drop any queued dupes of the removed id (Up Next / Autoplay / Play Next).
+    if (removed) {
+      var rid = trackId(removed);
+      if (rid) {
+        ["playNext", "upNext", "autoplay"].forEach(function (key) {
+          session[key] = (session[key] || []).filter(function (t) {
+            return trackId(t) !== rid;
+          });
+        });
+      }
+    }
     emit();
+    // Soft top-up so suppress + ring steer take effect without blocking UI on force-refill.
+    if (session.autoplayEnabled) {
+      try {
+        prepareAutoplay();
+      } catch (ePrep) {}
+    }
     return removed;
   }
 
@@ -532,6 +609,39 @@
     if (session.history.length > MAX_HISTORY) {
       session.history = session.history.slice(-MAX_HISTORY);
     }
+    try {
+      if (window.SDMusicSessionSignals) {
+        window.SDMusicSessionSignals.ensure(session);
+        window.SDMusicSessionSignals.markSessionPlayed(session.ringSteer, track);
+      }
+    } catch (e) {}
+  }
+
+  /** Capture dwell/skip signal for the track leaving Now Playing. */
+  function signalLeavingNow(opts) {
+    opts = opts || {};
+    if (!session.now) return;
+    var track = session.now;
+    var sec = null;
+    var dur = null;
+    try {
+      var a = window.StepDaddyMusicPlayer && window.StepDaddyMusicPlayer._instance && window.StepDaddyMusicPlayer._instance.audio;
+      if (a) {
+        if (isFinite(a.currentTime)) sec = a.currentTime;
+        if (isFinite(a.duration) && a.duration > 0) dur = a.duration;
+      }
+    } catch (e) {}
+    if (sec == null && isFinite(session.positionSec)) sec = session.positionSec;
+    try {
+      if (window.SDMusicSessionSignals && typeof window.SDMusicSessionSignals.onDwell === "function") {
+        window.SDMusicSessionSignals.onDwell(session, track, {
+          seconds: sec,
+          duration: dur,
+          completed: !!opts.completed,
+          skipped: !!opts.skipped,
+        });
+      }
+    } catch (e2) {}
   }
 
   function peekNextTrack() {
@@ -559,9 +669,12 @@
     }
 
     function take(track, layer, extra) {
+      // Realtime ring steer from skip vs complete before history push.
+      signalLeavingNow({ completed: fromEnded && !opts.skipped, skipped: !fromEnded || !!opts.skipped });
       if (session.now) pushHistory(session.now);
       session.now = track;
       session.layer = layer;
+      session.positionSec = 0;
       emit();
       prepareAutoplay();
       return Object.assign({ track: session.now, layer: layer, ended: false }, extra || {});
@@ -599,6 +712,7 @@
       return take(session.autoplay.shift(), "autoplay");
     }
 
+    signalLeavingNow({ completed: fromEnded, skipped: !fromEnded });
     if (session.now) pushHistory(session.now);
     session.now = null;
     emit();
@@ -628,186 +742,59 @@
     return advanceNext({ fromEnded: true });
   }
 
+  var _uqAp = null;
+  function uqAp() {
+    if (_uqAp) return _uqAp;
+    var api = window.SDMusicUQAutoplay;
+    if (!api || typeof api.bind !== "function") {
+      _uqAp = {
+        prepareAutoplay: function () {
+          return Promise.resolve(session.autoplay || []);
+        },
+        appendAutoplay: function () {},
+      };
+      return _uqAp;
+    }
+    _uqAp = api.bind({
+      trackId: trackId,
+      cloneTrack: cloneTrack,
+      getSession: function () {
+        return session;
+      },
+      emit: emit,
+      recentIds: recentIds,
+      MAX_AUTOPLAY: MAX_AUTOPLAY,
+      AUTOPLAY_PREP_MS: AUTOPLAY_PREP_MS,
+      inflightRef: {
+        get inflight() {
+          return autoplayInflight;
+        },
+        set inflight(v) {
+          autoplayInflight = v;
+        },
+        get at() {
+          return autoplayInflightAt;
+        },
+        set at(v) {
+          autoplayInflightAt = v;
+        },
+        get gen() {
+          return autoplayPrepGen;
+        },
+        set gen(v) {
+          autoplayPrepGen = v;
+        },
+      },
+    });
+    return _uqAp;
+  }
+
   function prepareAutoplay(opts) {
-    opts = opts || {};
-    if (!session.autoplayEnabled) return Promise.resolve([]);
-    // Prefetch outer rings before Up Next / Autoplay empties.
-    if (!opts.force && session.autoplay.length >= 8 && (session.upNext || []).length >= 3) {
-      return Promise.resolve(session.autoplay);
-    }
-    if (!opts.force && session.autoplay.length >= 12) return Promise.resolve(session.autoplay);
-
-    // Recover from a hung prepare so Autoplay never sits on "Preparing…" forever.
-    if (autoplayInflight && !opts.force) {
-      if (autoplayInflightAt && Date.now() - autoplayInflightAt < AUTOPLAY_PREP_MS) {
-        return autoplayInflight;
-      }
-      autoplayInflight = null;
-      autoplayInflightAt = 0;
-    }
-
-    var SQ = window.SDMusicSmartQueue;
-    if (!SQ || typeof SQ.refill !== "function") {
-      var local = [];
-      try {
-        if (SQ && typeof SQ.madeForYou === "function") local = SQ.madeForYou(16) || [];
-      } catch (e) {}
-      appendAutoplay(local);
-      if (!session.autoplay.length && SQ && typeof SQ.emergencyPlayable === "function") {
-        return SQ.emergencyPlayable(session.now, 16).then(function (tracks) {
-          appendAutoplay(tracks);
-          return session.autoplay;
-        });
-      }
-      return Promise.resolve(session.autoplay);
-    }
-
-    var seed = session.now || (session.history.length && session.history[session.history.length - 1]) || null;
-    var myGen = ++autoplayPrepGen;
-    autoplayInflightAt = Date.now();
-
-    function timed(promise, ms, fallback) {
-      return new Promise(function (resolve) {
-        var settled = false;
-        function done(v) {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          resolve(v);
-        }
-        var timer = setTimeout(function () {
-          try {
-            var fb = typeof fallback === "function" ? fallback() : fallback;
-            Promise.resolve(fb).then(done, function () {
-              done([]);
-            });
-          } catch (e) {
-            done([]);
-          }
-        }, ms);
-        Promise.resolve(promise).then(done, function () {
-          try {
-            var fb2 = typeof fallback === "function" ? fallback() : fallback;
-            Promise.resolve(fb2).then(done, function () {
-              done([]);
-            });
-          } catch (e2) {
-            done([]);
-          }
-        });
-      });
-    }
-
-    autoplayInflight = timed(
-      SQ.refill({
-        force: !!opts.force,
-        state: {
-          source: "listen",
-          id: seed && trackId(seed),
-          albumId:
-            (seed && seed.albumId) ||
-            (session.source && session.source.albumId) ||
-            (session.source && session.source.type === "album" && session.source.id) ||
-            "",
-          albumTitle: (session.source && session.source.title) || (seed && seed.albumTitle) || "",
-          artistId: (seed && seed.artistId) || (session.source && session.source.artistId) || "",
-          title: seed && seed.title,
-          subtitle: (seed && ((seed.artists && seed.artists.join(", ")) || seed.subtitle)) || "",
-          year: seed && seed.year,
-          entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
-        },
-        queue: [],
-        track: seed,
-        source: "listen",
-        entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
-        sourceRemainder: (session.upNext || []).slice(),
-        sourceOrder: (session.source && session.source.order) || [],
-        sourceMeta: session.source || null,
-        history: (session.history || []).slice(),
-        parents: session.parents || (session.source && session.source.parents) || [],
-        multiParent: !!(session.multiParent || (session.source && session.source.multiParent)),
-        onBatch: function (batch) {
-          // Progressive fill — UI leaves "Preparing…" as soon as first candidates land.
-          appendAutoplay(batch);
-        },
-      }).then(function (res) {
-        var q = (res && res.queue) || [];
-        appendAutoplay(q);
-        return session.autoplay;
-      }),
-      AUTOPLAY_PREP_MS,
-      function () {
-        // Timeout path: force a fresh emergency ladder; never leave Autoplay empty.
-        if (typeof SQ.emergencyPlayable === "function") {
-          return SQ.emergencyPlayable(seed, 20).then(function (tracks) {
-            appendAutoplay(tracks);
-            if (!session.autoplay.length && typeof SQ.homeTracks === "function") {
-              return SQ.homeTracks(24).then(function (home) {
-                appendAutoplay(home);
-                return session.autoplay;
-              });
-            }
-            return session.autoplay;
-          });
-        }
-        return session.autoplay;
-      }
-    )
-      .then(function (list) {
-        if ((!list || !list.length) && typeof SQ.emergencyPlayable === "function") {
-          return SQ.emergencyPlayable(seed, 20).then(function (tracks) {
-            appendAutoplay(tracks);
-            return session.autoplay;
-          });
-        }
-        return session.autoplay;
-      })
-      .catch(function () {
-        return session.autoplay;
-      })
-      .finally(function () {
-        if (autoplayPrepGen === myGen) {
-          autoplayInflight = null;
-          autoplayInflightAt = 0;
-        }
-      });
-    return autoplayInflight;
+    return uqAp().prepareAutoplay(opts);
   }
 
   function appendAutoplay(tracks) {
-    var seen = recentIds();
-    (tracks || []).forEach(function (t) {
-      if (!t || !trackId(t)) return;
-      if (t.stationuuid || t.kind === "station" || t.source === "radio") return;
-      var id = trackId(t);
-      if (seen[id]) return;
-      seen[id] = 1;
-      var item = cloneTrack(t);
-      item._queueLayer = "autoplay";
-      if (t._ring != null) item._ring = t._ring;
-      if (t._ringSource) item._ringSource = t._ringSource;
-      if (t._parentArtist) item._parentArtist = t._parentArtist;
-      else if (!item._ringSource && item._ring == null) {
-        item._ring = 10;
-        item._ringSource = "global";
-      }
-      session.autoplay.push(item);
-    });
-    if (window.SDMusicTaste && typeof window.SDMusicTaste.rankItems === "function") {
-      try {
-        var rankOpts = {
-          entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
-          seedItems: session.now ? [session.now] : [],
-          softBoost: !session.autoplayBias,
-          smartShuffle: !!session.autoplayBias,
-        };
-        session.autoplay = window.SDMusicTaste.rankItems(session.autoplay, rankOpts) || session.autoplay;
-      } catch (e) {}
-    }
-    if (session.autoplay.length > MAX_AUTOPLAY) {
-      session.autoplay = session.autoplay.slice(0, MAX_AUTOPLAY);
-    }
-    emit();
+    return uqAp().appendAutoplay(tracks);
   }
 
   function getTimeline() {
@@ -831,6 +818,9 @@
       layer: session.layer,
       positionSec: session.positionSec,
       peekNext: peekNextTrack(),
+      ringSteer: window.SDMusicSessionSignals
+        ? window.SDMusicSessionSignals.snapshot(session)
+        : null,
     };
   }
 
@@ -902,6 +892,20 @@
     trackId: trackId,
     getSession: function () {
       return session;
+    },
+    signalLike: function (track, liked) {
+      if (window.SDMusicSessionSignals && typeof window.SDMusicSessionSignals.onLike === "function") {
+        window.SDMusicSessionSignals.onLike(session, track, liked);
+        emit();
+        if (session.autoplayEnabled) {
+          try {
+            prepareAutoplay();
+          } catch (e) {}
+        }
+      }
+    },
+    ringSteerSnapshot: function () {
+      return window.SDMusicSessionSignals ? window.SDMusicSessionSignals.snapshot(session) : null;
     },
   };
 })();

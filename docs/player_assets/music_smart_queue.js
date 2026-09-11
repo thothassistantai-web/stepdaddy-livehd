@@ -486,10 +486,41 @@
       current.albumTitle || state.albumTitle || (ctx.sourceMeta && ctx.sourceMeta.title) || "";
     var vid = current.videoId || (state.source === "listen" ? state.id : "") || "";
     var year = seedYearOf(current, state);
-    var target = ctx.target || RING_TARGET;
+    var steer = ctx.ringSteer || null;
+    var plan =
+      window.SDMusicSessionSignals && typeof window.SDMusicSessionSignals.refillPlan === "function"
+        ? window.SDMusicSessionSignals.refillPlan(steer)
+        : { preferRing: 5, stayBias: 0, softCapMul: {}, minStartRing: 1, targetBoost: 0 };
+    var target = (ctx.target || RING_TARGET) + (plan.targetBoost || 0);
     var floor = ctx.floor || RING_FLOOR;
-    var parents = normalizeParents(ctx.parents, artistId, artistName);
+    var excludeMap = ctx.excludeIds || Object.create(null);
+    var allowReplay = !!ctx.allowSessionReplay;
+    // Re-weight parents from realtime steer (boost liked parents; suppress skipped/removed).
+    var parents = normalizeParents(ctx.parents, artistId, artistName).map(function (p) {
+      var o = Object.assign({}, p);
+      if (window.SDMusicSessionSignals && typeof window.SDMusicSessionSignals.parentWeight === "function") {
+        o.weight = window.SDMusicSessionSignals.parentWeight(steer, o.artistName, o.weight || 1);
+      }
+      return o;
+    });
+    parents.sort(function (a, b) {
+      return (b.weight || 0) - (a.weight || 0);
+    });
+    // Drop heavily suppressed parents from fan-out (keep at least one).
+    var filteredParents = parents.filter(function (p) {
+      return (p.weight || 0) > 0.25;
+    });
+    if (filteredParents.length) parents = filteredParents;
     var multiParent = !!(ctx.multiParent && parents.length > 1);
+
+    function filterExcluded(list) {
+      return (list || []).filter(function (t) {
+        var id = trackId(t);
+        if (!id) return false;
+        if (!allowReplay && excludeMap[id]) return false;
+        return true;
+      });
+    }
 
     function runRing(ring, acc) {
       // Ring 1 = parent context only — never fan out.
@@ -497,12 +528,32 @@
         flowSteps.push(ring.label);
         return Promise.resolve(acc);
       }
-      // Outward only: soft-cap earlier rings then widen until target; ring 10 always if below floor.
-      if (ring.id < 10 && acc.length >= target) return Promise.resolve(acc);
+      // Hard-skip steer: soft-skip early rings to move outward faster.
+      if (plan.minStartRing > 1 && ring.id < plan.minStartRing && ring.id < 10) {
+        flowSteps.push(ring.label + "*steer-skip");
+        return Promise.resolve(acc);
+      }
+      var mul = (plan.softCapMul && plan.softCapMul[ring.id]) || 1;
+      var softCap = Math.max(0, Math.round((ring.softCap || 8) * mul));
+      // Prefer-ring stay: don't early-exit before we've tried the preferred ring.
+      var prefer = plan.preferRing || 5;
+      var stay = (plan.stayBias || 0) >= 0.8;
+      if (ring.id < 10 && acc.length >= target) {
+        if (!(stay && ring.id <= prefer + 1 && softCap > 0)) {
+          return Promise.resolve(acc);
+        }
+      }
       if (ring.id === 10 && acc.length >= floor && acc.length >= target) {
         return Promise.resolve(acc);
       }
-      flowSteps.push(multiParent && ring.id >= 4 && ring.id <= 9 ? ring.label + "*parents" : ring.label);
+      if (softCap <= 0 && ring.id < 10) {
+        flowSteps.push(ring.label + "*cap0");
+        return Promise.resolve(acc);
+      }
+      var stepLabel = multiParent && ring.id >= 4 && ring.id <= 9 ? ring.label + "*parents" : ring.label;
+      if (stay && ring.id === prefer) stepLabel += "*steer";
+      if ((plan.stayBias || 0) <= -0.8 && ring.id >= prefer) stepLabel += "*out";
+      flowSteps.push(stepLabel);
       var runner;
       if (ring.id === 2) {
         runner = function () {
@@ -513,21 +564,21 @@
         runner = function () {
           // No single release family on mixed playlists/likes — soft-skip.
           if (multiParent) return [];
-          return releaseFamilyTracks(current, albumTitle, artistName, albumId, ring.softCap + 4);
+          return releaseFamilyTracks(current, albumTitle, artistName, albumId, softCap + 4);
         };
       } else if (ring.id === 4) {
         runner = function () {
           if (multiParent) {
-            return fanOutParents(parents, 4, function (p) {
+            return fanOutParents(parents, Math.max(2, Math.ceil(4 * mul)), function (p) {
               return artistEraTracks(p.artistId, p.artistName, p.year || year, "", 6);
             });
           }
-          return artistEraTracks(artistId, artistName, year, albumId, ring.softCap + 4);
+          return artistEraTracks(artistId, artistName, year, albumId, softCap + 4);
         };
       } else if (ring.id === 5) {
         runner = function () {
           if (multiParent) {
-            return fanOutParents(parents, 5, function (p) {
+            return fanOutParents(parents, Math.max(2, Math.ceil(5 * mul)), function (p) {
               if (!p.artistId && !p.artistName) return [];
               return artistRadio(p.artistId, p.artistName);
             });
@@ -557,12 +608,12 @@
               return searchSimilar((p.artistName || "") + " songs", 8);
             });
           }
-          return collaboratorTracks(current, ring.softCap + 4);
+          return collaboratorTracks(current, softCap + 4);
         };
       } else if (ring.id === 7) {
         runner = function () {
           if (multiParent) {
-            return fanOutParents(parents, 4, function (p) {
+            return fanOutParents(parents, Math.max(2, Math.ceil(4 * mul)), function (p) {
               return relatedArtistTracks(p.artistName, 10, true);
             });
           }
@@ -597,12 +648,12 @@
               });
             });
           }
-          return genreMoodTracks(current, vid, ring.softCap + 6);
+          return genreMoodTracks(current, vid, softCap + 6);
         };
       } else if (ring.id === 9) {
         runner = function () {
           // Session taste already global; seed with all parents for co-occurrence ranking later.
-          return sessionTasteTracks(ring.softCap + 6);
+          return sessionTasteTracks(softCap + 6);
         };
       } else {
         // Ring 10 — charts / trending / emergency anything-playable
@@ -617,8 +668,15 @@
         };
       }
       return withTimeout(Promise.resolve().then(runner), FETCH_MS, []).then(function (tracks) {
-        var stamped = stampRing(tracks || [], ring.id, ring.label).slice(0, ring.softCap || 24);
-        var next = dedupeTracks(acc.concat(stamped));
+        var stamped = stampRing(filterExcluded(tracks || []), ring.id, ring.label).slice(
+          0,
+          ring.id === 10 ? softCap || 24 : softCap || 24
+        );
+        // Prefer-ring: put steered ring tracks nearer the front of acc for ranking.
+        var next =
+          stay && ring.id === prefer
+            ? dedupeTracks(stamped.concat(acc))
+            : dedupeTracks(acc.concat(stamped));
         emitProgress(next);
         return next;
       });

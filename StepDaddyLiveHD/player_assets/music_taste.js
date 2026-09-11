@@ -525,7 +525,7 @@
       var hit = false;
       if (typeof avoid.indexOf === "function") hit = avoid.indexOf(key) >= 0;
       else if (avoid[key]) hit = true;
-      if (hit) pen = Math.max(pen, smart ? 7.5 : 3.6);
+      if (hit) pen = Math.max(pen, smart ? 11 : 5.5);
     }
     var recent = data.recent || [];
     for (var i = 0; i < Math.min(recent.length, 14); i++) {
@@ -618,12 +618,20 @@
    *  - seedKeys / seedItems: co-occurrence + cold-start artist/genre/era anchors
    *  - contextBias: 0–1 strength for temporal/entry (default 1)
    *  - softBoost: smaller effect (Home / search)
-   *  - smartShuffle: stronger cold-start + rank noise (Smart Shuffle path)
+   *  - smartShuffle: stronger predictive weights (likes/skips/dwell/cooccur/TOD/entry/parents)
    *  - avoidKeys: extra immediate-repeat penalties
+   *  - parents / multiParent: multi-parent playlist context boost
    *
    * Learning (when history exists): skips down-rank via scoreKey; completes/likes
    * up-rank; co-occurrence + entry path + temporal boost. Cold start still applies
    * as a gap-fill prior so Smart Shuffle never collapses to Off/plain Shuffle.
+   *
+   * Research takeaways applied (Spotify CoSeRNN / Smart Shuffle / YTM transformers):
+   *  - Session-recent + context (TOD, entry) beat static averages for next-track prediction
+   *  - Explicit likes strong positive; short skips strong negative; completion/dwell graded
+   *  - Co-occurrence with now/seed = sequential continuity (not cold noise)
+   *  - Multi-parent playlist affinity keeps shuffle inside the session vibe
+   *  - Anti-repeat via avoidKeys / recentPenalty (YTM watch continuity)
    */
   function rankItems(items, opts) {
     opts = opts || {};
@@ -656,43 +664,103 @@
     if (opts.softBoost) bias *= 0.55;
     if (!isFinite(bias)) bias = 1;
     var signaled = hasSignal(data);
+    var smart = !!opts.smartShuffle;
     // Full cold-start prior when empty; softer gap-fill when taste already exists.
-    var coldScale = opts.smartShuffle ? (signaled ? 0.55 : 1.15) : signaled ? 0.35 : 1.0;
+    // Smart Shuffle with signal: lean harder on learned weights, less on cold noise.
+    var coldScale = smart ? (signaled ? 0.35 : 1.15) : signaled ? 0.35 : 1.0;
     if (opts.softBoost) coldScale *= 0.65;
-    var noiseAmp = opts.smartShuffle ? 0.55 : 0.22;
+    var noiseAmp = smart ? (signaled ? 0.28 : 0.55) : 0.22;
+    var topG = smart ? topGenres(data, 4) : [];
+    var topA = smart ? topArtists(data, 8) : [];
+    var parentNames = {};
+    (opts.parents || []).forEach(function (p) {
+      var n = String((p && (p.artistName || p.name)) || "")
+        .toLowerCase()
+        .trim();
+      if (n) parentNames[n] = (p && p.weight) || 1;
+    });
 
     var ranked = dedupeItems(items || [])
       .map(function (it, idx) {
         var norm = normalizeItem(it) || it;
         var key = itemKey(norm);
         var base = scoreKey(data, key);
-        if (liked[String(norm.id)]) base += 4;
+        // Explicit like — strongest positive (Spotify / YTM).
+        if (liked[String(norm.id)]) base += smart ? 5.5 : 4;
         if (norm.genre) {
           var g = data.genres[String(norm.genre).toLowerCase()];
-          if (g) base += Math.min(3, (g.n || 0) * 0.4);
+          if (g) base += Math.min(smart ? 4.2 : 3, (g.n || 0) * (smart ? 0.55 : 0.4) + (g.w || 0) * 0.08);
         }
         if (norm.year) {
           var y = data.years[String(norm.year)];
           if (y) base += Math.min(1.8, (y.n || 0) * 0.35);
         }
-        if (norm.artist || norm.subtitle) {
-          var a = String(norm.artist || norm.subtitle).toLowerCase();
+        var toks = artistTokens(norm);
+        if (toks.length) {
           Object.keys(data.artists || {}).forEach(function (ak) {
-            if (a.indexOf(ak) >= 0) base += Math.min(2.5, (data.artists[ak].n || 0) * 0.35);
+            toks.forEach(function (tok) {
+              if (tok === ak || (tok.length >= 4 && (tok.indexOf(ak) >= 0 || ak.indexOf(tok) >= 0))) {
+                var aw = data.artists[ak] || {};
+                base += Math.min(smart ? 3.4 : 2.5, (aw.n || 0) * 0.4 + (aw.w || 0) * 0.12);
+              }
+            });
           });
         }
-        base += temporalBoost(data, key, norm.artist || "") * bias;
-        base += cooccurBoost(data, key, seedKeys) * bias;
+        // Smart: boost top taste genres/artists even without per-track history.
+        if (smart && signaled) {
+          topG.forEach(function (tg, gi) {
+            var ng = String((norm.genre || (it && it.genre) || "")).toLowerCase();
+            if (ng && tg.name && (ng === tg.name || ng.indexOf(tg.name) >= 0 || tg.name.indexOf(ng) >= 0)) {
+              base += (2.2 - gi * 0.35) * bias;
+            }
+          });
+          topA.forEach(function (ta, ai) {
+            toks.forEach(function (tok) {
+              if (tok === ta.name || (tok.length >= 4 && ta.name.indexOf(tok) >= 0)) {
+                base += (1.8 - ai * 0.15) * bias;
+              }
+            });
+          });
+        }
+        // Multi-parent playlist context — keep shuffle inside session vibe.
+        if (smart && Object.keys(parentNames).length) {
+          toks.forEach(function (tok) {
+            Object.keys(parentNames).forEach(function (pn) {
+              if (tok === pn || (tok.length >= 4 && (pn.indexOf(tok) >= 0 || tok.indexOf(pn) >= 0))) {
+                base += Math.min(2.4, 0.9 * (parentNames[pn] || 1)) * bias;
+              }
+            });
+          });
+        }
+        // Sequential continuity (CoSeRNN-style): co-occur with now/seed + temporal TOD.
+        base += temporalBoost(data, key, norm.artist || "") * bias * (smart ? 1.25 : 1);
+        base += cooccurBoost(data, key, seedKeys) * bias * (smart ? 1.35 : 1);
         if (entry) {
           var ep = data.entryPaths[entry];
-          if (ep) base += Math.min(1.4, ((ep.n || 0) * 0.15 + (ep.w || 0) * 0.05)) * bias;
-          // Prefer candidates that themselves came from matching surfaces when tagged
-          if (norm.entryPath && norm.entryPath === entry) base += 0.6 * bias;
+          if (ep) base += Math.min(smart ? 2.0 : 1.4, ((ep.n || 0) * 0.18 + (ep.w || 0) * 0.06)) * bias;
+          if (norm.entryPath && norm.entryPath === entry) base += (smart ? 0.9 : 0.6) * bias;
         }
         base += coldStartBoost(it, norm, seedNorms, coldScale);
-        base -= recentPenalty(data, key, opts);
+        // Anti-repeat: stronger under Smart Shuffle.
+        base -= recentPenalty(data, key, opts) * (smart ? 1.15 : 1);
+        // Artist separation: mild penalty if same artist as immediate seed (session flow).
+        if (smart && seedNorms[0]) {
+          var seedToks = artistTokens(seedNorms[0]);
+          var sameArt = false;
+          seedToks.forEach(function (a) {
+            toks.forEach(function (b) {
+              if (a && a === b) sameArt = true;
+            });
+          });
+          if (sameArt && idx > 0) base -= 0.85;
+        }
         // Tie-break noise: Smart Shuffle must not equal Straight Off input order.
         base += rankNoise(key, idx) * noiseAmp;
+        if (it && typeof it === "object") {
+          try {
+            it._tasteScore = base;
+          } catch (eScore) {}
+        }
         return { item: it, score: base - idx * 0.002 };
       })
       .sort(function (a, b) {

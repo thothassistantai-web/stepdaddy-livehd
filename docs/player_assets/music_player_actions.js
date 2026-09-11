@@ -89,6 +89,32 @@
       }
     } catch (e) {}
     try {
+      // Realtime ring steer from heart / unlike.
+      var UQ = window.SDMusicUnifiedQueue;
+      var nowTrack =
+        (UQ && typeof UQ.getTimeline === "function" && UQ.getTimeline().now) ||
+        {
+          videoId: this.state.source === "listen" ? this.state.id : "",
+          id: this.state.id,
+          title: this.state.title,
+          subtitle: this.state.subtitle,
+          artists: this.state.subtitle ? [this.state.subtitle] : [],
+          genre: this.state.genre,
+          _ring: (this.state.track && this.state.track._ring) || (this.state.now && this.state.now._ring),
+          _ringSource:
+            (this.state.track && this.state.track._ringSource) ||
+            (this.state.now && this.state.now._ringSource),
+          _parentArtist:
+            (this.state.track && this.state.track._parentArtist) ||
+            (this.state.now && this.state.now._parentArtist),
+        };
+      if (UQ && typeof UQ.signalLike === "function") {
+        UQ.signalLike(Object.assign({}, nowTrack, likePayload), liked);
+      } else if (window.SDMusicSessionSignals && UQ && typeof UQ.getSession === "function") {
+        window.SDMusicSessionSignals.onLike(UQ.getSession(), Object.assign({}, nowTrack, likePayload), liked);
+      }
+    } catch (eLikeSteer) {}
+    try {
       window.dispatchEvent(new CustomEvent("sd-music-like", { detail: likePayload }));
     } catch (e2) {}
     try {

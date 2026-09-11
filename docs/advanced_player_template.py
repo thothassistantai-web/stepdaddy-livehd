@@ -591,7 +591,7 @@ def render_advanced_tv_page(channel_id: str | None = None) -> str:
         + """  <script>window.SD_INITIAL_CHANNEL = """ + initial + """;</script>
   <script>window.__SD_BUNDLE_VERSION = "20260911j";</script>
   <script src="/tv-assets/pin_unlock.js?v=20260911j"></script>
-  <script src="/tv-assets/player_bundle.js?v=20260911j"></script>
+  <script src="/tv-assets/player_bundle.js?v=20260911k"></script>
 </body>
 </html>
 """
