@@ -1,3 +1,8 @@
+## Listen player restore after h regression 20260911i
+- **h regressed Listen:** splitting UQ ecosystem into `music_uq_ecosystem.js` / rings dropped module state (`var session`, `listeners`, `persistTimer`, autoplay/ecosystem inflight, `AUTOPLAY_PREP_MS`) from `music_unified_queue.js`.
+- Symptom: Radio OK; Listen taps call `startFromSource` → `emit()` → `ReferenceError: listeners is not defined` — player UI never syncs.
+- Fix: restore UQ module-state declarations; rebuild `player_bundle.js`. Report: `/tmp/music-listen-broken-report.json`.
+
 ## Music Autoplay 10-ring ecosystem + multi-parent 20260911h
 - Ladder rings 1→10 (now→source→release-family→artist-era→artist→collaborators→related→genre-mood→taste→global); outward only; ring 10 never dead-ends; g timeouts preserved.
 - Multi-parent: playlist / liked / library / home / search / mixed shelves build `session.parents[]` from full source; rings 4–9 fan out across all parents (round-robin); ring 3 soft-skipped when mixed.

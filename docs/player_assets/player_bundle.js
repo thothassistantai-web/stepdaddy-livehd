@@ -29090,6 +29090,16 @@
     return { parents: [], multiParent: false, surface: String((meta && (meta.type || meta.surface)) || "").toLowerCase() };
   }
 
+  // Module state — must stay declared (h split accidentally dropped these → Listen emit/onChange throw).
+  var session = emptySession();
+  var persistTimer = null;
+  var autoplayInflight = null;
+  var autoplayInflightAt = 0;
+  var autoplayPrepGen = 0;
+  var ecosystemInflight = null;
+  var listeners = [];
+  var AUTOPLAY_PREP_MS = 11000;
+
   function emit() {
     var snap = getTimeline();
     listeners.forEach(function (fn) {
