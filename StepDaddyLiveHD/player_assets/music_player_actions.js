@@ -354,6 +354,12 @@
     function row(t, opts) {
       opts = opts || {};
       var sub = (t.artists && t.artists.join(", ")) || t.subtitle || "";
+      var ringLabel = t._ringSource || "";
+      if (t._parentArtist && ringLabel) ringLabel = ringLabel + " · " + t._parentArtist;
+      else if (t._parentArtist) ringLabel = t._parentArtist;
+      if (ringLabel && (opts.section === "autoplay" || opts.section === "upNext")) {
+        sub = sub ? sub + " · " + ringLabel : ringLabel;
+      }
       var actions = "";
       var sec = opts.section || "";
       var idx = opts.index;

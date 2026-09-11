@@ -1,3 +1,10 @@
+## Music Autoplay 10-ring ecosystem + multi-parent 20260911h
+- Ladder rings 1→10 (now→source→release-family→artist-era→artist→collaborators→related→genre-mood→taste→global); outward only; ring 10 never dead-ends; g timeouts preserved.
+- Multi-parent: playlist / liked / library / home / search / mixed shelves build `session.parents[]` from full source; rings 4–9 fan out across all parents (round-robin); ring 3 soft-skipped when mixed.
+- Single album/artist start remains single-tree. Queue labels: ring source + parent artist when present.
+- Split: `music_ecosystem_rings.js`, `music_artist_ecosystem.js`, `music_uq_ecosystem.js` (files kept under 1k).
+- Unit smoke: `player_assets/_smoke_ecosystem_rings.js`. Report: `/tmp/music-ecosystem-10-implement.json`.
+
 ## Music Autoplay endless fallback 20260911g
 - Field: S21 stuck on Autoplay **Preparing suggestions…** after Up Next source finished (live was 20260911f).
 - Root cause: shared `SQ.refill` inflight + `fetchJson` with no timeout → hung Listen call dead-ended prepare forever; waiting path did not retry when Autoplay stayed empty.

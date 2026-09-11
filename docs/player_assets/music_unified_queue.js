@@ -79,6 +79,8 @@
     return {
       v: 1,
       source: null, // { type, id, title, order[], startTrackId, artistId, artistName, entryPath }
+      parents: [], // multi-parent ecosystem: [{artistId, artistName, weight, count}]
+      multiParent: false,
       now: null,
       history: [],
       playNext: [], // FIFO of manual "Play Next" — newest insert at front
@@ -95,14 +97,25 @@
     };
   }
 
-  var session = emptySession();
-  var persistTimer = null;
-  var autoplayInflight = null;
-  var autoplayInflightAt = 0;
-  var autoplayPrepGen = 0;
-  var ecosystemInflight = null;
-  var listeners = [];
-  var AUTOPLAY_PREP_MS = 11000;
+  /** Surfaces that often mix many artists — parents = union of source, not current track only. */
+  function isMixedSurface(type) {
+    var api = window.SDMusicEcosystemRings;
+    if (api && api.isMixedSurface) return api.isMixedSurface(type);
+    var t = String(type || "").toLowerCase();
+    return !(t === "album" || t === "artist" || t === "directory");
+  }
+
+  function buildParentsFromTracks(tracks, opts) {
+    var api = window.SDMusicEcosystemRings;
+    if (api && api.buildParentsFromTracks) return api.buildParentsFromTracks(tracks, opts);
+    return [];
+  }
+
+  function resolveParents(seeds, meta) {
+    var api = window.SDMusicEcosystemRings;
+    if (api && api.resolveParents) return api.resolveParents(seeds, meta);
+    return { parents: [], multiParent: false, surface: String((meta && (meta.type || meta.surface)) || "").toLowerCase() };
+  }
 
   function emit() {
     var snap = getTimeline();
@@ -223,113 +236,32 @@
     return added.length;
   }
 
-  function shouldExtendArtistEcosystem(meta) {
-    meta = meta || {};
-    var t = String(meta.type || meta.surface || "").toLowerCase();
-    return t === "album" || t === "directory" || t === "tracks-directory" || t === "videos-directory";
-  }
-
-  /**
-   * Prefetch artist discography into Up Next without blocking first track.
-   * Album: rest-of-album already in upNext → append other albums then singles.
-   * Directory: fill artist popular + discography before Autoplay.
-   */
-  function scheduleArtistEcosystem(meta, seeds) {
-    meta = meta || {};
-    if (!shouldExtendArtistEcosystem(meta)) return Promise.resolve([]);
-    var SQ = window.SDMusicSmartQueue;
-    if (!SQ || typeof SQ.artistEcosystem !== "function") return Promise.resolve([]);
-
-    var excludeIds = Object.create(null);
-    (seeds || []).forEach(function (t) {
-      var id = trackId(t);
-      if (id) excludeIds[id] = 1;
-    });
-    (session.upNext || []).forEach(function (t) {
-      var id = trackId(t);
-      if (id) excludeIds[id] = 1;
-    });
-    if (session.now) {
-      var nid = trackId(session.now);
-      if (nid) excludeIds[nid] = 1;
+  var _uqEco = null;
+  function uqEco() {
+    if (_uqEco) return _uqEco;
+    var api = window.SDMusicUQEcosystem;
+    if (!api || typeof api.bind !== "function") {
+      _uqEco = {
+        shouldExtendArtistEcosystem: function () { return false; },
+        scheduleArtistEcosystem: function () { return Promise.resolve([]); },
+        scheduleMultiParentEcosystem: function () { return Promise.resolve([]); },
+      };
+      return _uqEco;
     }
-
-    var surface = String(meta.type || meta.surface || "").toLowerCase();
-    var mode = surface === "album" ? "album-extend" : "directory";
-    var artistId =
-      meta.artistId ||
-      (session.now && (session.now.artistId || (session.now.artistIds && session.now.artistIds[0]))) ||
-      (session.source && session.source.artistId) ||
-      "";
-    var artistName =
-      meta.artistName ||
-      (session.now && ((session.now.artists && session.now.artists[0]) || session.now.subtitle)) ||
-      (session.source && session.source.artistName) ||
-      "";
-
-    session.ecosystemPending = true;
-    if (ecosystemInflight) {
-      // Allow overlapping schedule only for newest session; drop flag when done.
-    }
-
-    var seenBatch = Object.create(null);
-    ecosystemInflight = SQ.artistEcosystem({
-      artistId: artistId,
-      artistName: artistName,
-      excludeAlbumId: surface === "album" ? meta.id || meta.albumId || "" : "",
-      excludeIds: excludeIds,
-      mode: mode,
-      entryPath: surface || mode,
-      seedItems: seeds || (session.now ? [session.now] : []),
-      maxAlbums: mode === "album-extend" ? 8 : 5,
-      maxTracks: 72,
-      onBatch: function (batch) {
-        var fresh = (batch || []).filter(function (t) {
-          var id = trackId(t);
-          if (!id || seenBatch[id] || excludeIds[id]) return false;
-          seenBatch[id] = 1;
-          excludeIds[id] = 1;
-          return true;
-        });
-        if (!fresh.length) return;
-        extendUpNext(fresh, {
-          layer: "artist-ecosystem",
-          entryPath: surface,
-          // Album continuity: keep release order from builder; directory may rank.
-          rank: mode === "directory",
-          shuffle: mode === "directory" && session.shuffle,
-        });
-      },
-    })
-      .then(function (all) {
-        var fresh = (all || []).filter(function (t) {
-          var id = trackId(t);
-          if (!id || seenBatch[id] || excludeIds[id]) return false;
-          seenBatch[id] = 1;
-          return true;
-        });
-        if (fresh.length) {
-          extendUpNext(fresh, {
-            layer: "artist-ecosystem",
-            entryPath: surface,
-            rank: mode === "directory",
-            shuffle: mode === "directory" && session.shuffle,
-          });
-        }
-        return session.upNext;
-      })
-      .catch(function () {
-        return session.upNext;
-      })
-      .finally(function () {
-        session.ecosystemPending = false;
-        ecosystemInflight = null;
-        emit();
-        // Top up Autoplay after ecosystem settles (still after Up Next).
-        prepareAutoplay();
-      });
-    return ecosystemInflight;
+    _uqEco = api.bind({
+      trackId: trackId,
+      cloneTrack: cloneTrack,
+      extendUpNext: extendUpNext,
+      prepareAutoplay: function () { return prepareAutoplay.apply(null, arguments); },
+      getSession: function () { return session; },
+      emit: emit,
+      ecosystemRef: { get inflight() { return ecosystemInflight; }, set inflight(v) { ecosystemInflight = v; } },
+    });
+    return _uqEco;
   }
+  function shouldExtendArtistEcosystem(meta) { return uqEco().shouldExtendArtistEcosystem(meta); }
+  function scheduleArtistEcosystem(meta, seeds) { return uqEco().scheduleArtistEcosystem(meta, seeds); }
+  function scheduleMultiParentEcosystem(parents, seeds) { return uqEco().scheduleMultiParentEcosystem(parents, seeds); }
 
   function recentIds() {
     var ids = Object.create(null);
@@ -374,6 +306,17 @@
     var clearManual = opts.clearManual !== false;
     var prevManual = clearManual ? [] : session.playNext.slice();
 
+    var parentInfo = resolveParents(seeds, meta);
+    var ring2Label =
+      (meta.type === "playlist" && "playlist") ||
+      (meta.type === "liked" && "liked") ||
+      (meta.type === "library" && "library") ||
+      (meta.type === "home" && "home") ||
+      (meta.type === "search" && "search") ||
+      (meta.type === "album" && "album") ||
+      (meta.type === "artist" && "artist") ||
+      (parentInfo.multiParent ? "playlist" : "album");
+
     session.source = {
       type: meta.type || meta.surface || "listen",
       id: meta.id || meta.albumId || meta.artistId || meta.playlistId || "",
@@ -387,9 +330,20 @@
         "",
       entryPath: meta.entryPath || meta.type || meta.surface || "listen",
       albumId: meta.albumId || (meta.type === "album" ? meta.id : "") || (seeds[idx] && seeds[idx].albumId) || "",
+      multiParent: parentInfo.multiParent,
+      parents: parentInfo.parents,
     };
+    session.parents = parentInfo.parents;
+    session.multiParent = parentInfo.multiParent;
     session.now = cloneTrack(seeds[idx]);
-    session.upNext = seeds.slice(idx + 1).map(cloneTrack);
+    session.upNext = seeds.slice(idx + 1).map(function (t) {
+      var o = cloneTrack(t);
+      o._ring = 2;
+      o._ringSource = ring2Label;
+      var pname = (t.artists && t.artists[0]) || t.subtitle || "";
+      if (pname) o._parentArtist = pname;
+      return o;
+    });
     session.history = [];
     session.playNext = prevManual;
     session.autoplay = [];
@@ -423,9 +377,10 @@
         window.SDMusicTaste.recordEntry(session.source.entryPath);
       }
     } catch (e) {}
-    // Prefetch artist ecosystem in background (album / directory) — don't block Now Playing.
+    // Single-tree: prefetch artist ecosystem. Multi-parent: union prefetch (all parents).
     if (opts.extendArtistEcosystem !== false) {
-      scheduleArtistEcosystem(session.source, seeds);
+      if (session.multiParent) scheduleMultiParentEcosystem(session.parents, seeds);
+      else scheduleArtistEcosystem(session.source, seeds);
     }
     prepareAutoplay();
     return session.now;
@@ -666,7 +621,11 @@
   function prepareAutoplay(opts) {
     opts = opts || {};
     if (!session.autoplayEnabled) return Promise.resolve([]);
-    if (!opts.force && session.autoplay.length >= 8) return Promise.resolve(session.autoplay);
+    // Prefetch outer rings before Up Next / Autoplay empties.
+    if (!opts.force && session.autoplay.length >= 8 && (session.upNext || []).length >= 3) {
+      return Promise.resolve(session.autoplay);
+    }
+    if (!opts.force && session.autoplay.length >= 12) return Promise.resolve(session.autoplay);
 
     // Recover from a hung prepare so Autoplay never sits on "Preparing…" forever.
     if (autoplayInflight && !opts.force) {
@@ -740,15 +699,23 @@
             (session.source && session.source.albumId) ||
             (session.source && session.source.type === "album" && session.source.id) ||
             "",
+          albumTitle: (session.source && session.source.title) || (seed && seed.albumTitle) || "",
           artistId: (seed && seed.artistId) || (session.source && session.source.artistId) || "",
           title: seed && seed.title,
           subtitle: (seed && ((seed.artists && seed.artists.join(", ")) || seed.subtitle)) || "",
+          year: seed && seed.year,
           entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
         },
         queue: [],
         track: seed,
         source: "listen",
         entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
+        sourceRemainder: (session.upNext || []).slice(),
+        sourceOrder: (session.source && session.source.order) || [],
+        sourceMeta: session.source || null,
+        history: (session.history || []).slice(),
+        parents: session.parents || (session.source && session.source.parents) || [],
+        multiParent: !!(session.multiParent || (session.source && session.source.multiParent)),
         onBatch: function (batch) {
           // Progressive fill — UI leaves "Preparing…" as soon as first candidates land.
           appendAutoplay(batch);
@@ -807,6 +774,13 @@
       seen[id] = 1;
       var item = cloneTrack(t);
       item._queueLayer = "autoplay";
+      if (t._ring != null) item._ring = t._ring;
+      if (t._ringSource) item._ringSource = t._ringSource;
+      if (t._parentArtist) item._parentArtist = t._parentArtist;
+      else if (!item._ringSource && item._ring == null) {
+        item._ring = 10;
+        item._ringSource = "global";
+      }
       session.autoplay.push(item);
     });
     if (window.SDMusicTaste && typeof window.SDMusicTaste.rankItems === "function") {
@@ -839,6 +813,8 @@
       autoplay: session.autoplay.slice(),
       source: session.source,
       sourceLabel: srcTitle,
+      parents: (session.parents || []).slice(),
+      multiParent: !!session.multiParent,
       shuffle: session.shuffle,
       repeat: session.repeat,
       autoplayEnabled: session.autoplayEnabled,
@@ -897,6 +873,9 @@
     prepareAutoplay: prepareAutoplay,
     extendUpNext: extendUpNext,
     scheduleArtistEcosystem: scheduleArtistEcosystem,
+    scheduleMultiParentEcosystem: scheduleMultiParentEcosystem,
+    buildParentsFromTracks: buildParentsFromTracks,
+    isMixedSurface: isMixedSurface,
     getTimeline: getTimeline,
     asFlatQueue: asFlatQueue,
     currentIndex: currentIndex,

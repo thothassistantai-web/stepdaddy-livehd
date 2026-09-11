@@ -24828,6 +24828,12 @@
     function row(t, opts) {
       opts = opts || {};
       var sub = (t.artists && t.artists.join(", ")) || t.subtitle || "";
+      var ringLabel = t._ringSource || "";
+      if (t._parentArtist && ringLabel) ringLabel = ringLabel + " · " + t._parentArtist;
+      else if (t._parentArtist) ringLabel = t._parentArtist;
+      if (ringLabel && (opts.section === "autoplay" || opts.section === "upNext")) {
+        sub = sub ? sub + " · " + ringLabel : ringLabel;
+      }
       var actions = "";
       var sec = opts.section || "";
       var idx = opts.index;
@@ -27986,6 +27992,984 @@
   };
 })();
 
+;/* === music_ecosystem_rings === */
+/**
+ * Music Autoplay — 10-ring ecosystem + multi-parent helpers.
+ * Single-tree (album/artist) and multi-parent (playlist/likes/mixed) ladders.
+ * API: window.SDMusicEcosystemRings
+ */
+(function () {
+  if (window.SDMusicEcosystemRings) return;
+
+  var RING_TARGET = 28;
+  var RING_FLOOR = 4;
+
+  function trackId(t) {
+    return t && (t.videoId || t.id || t.stationuuid) ? String(t.videoId || t.id || t.stationuuid) : "";
+  }
+
+  /** 10-ring ladder: id, short label (queue UI), softCap per ring. */
+  var ECOSYSTEM_RINGS = [
+    { id: 1, label: "now", softCap: 0 },
+    { id: 2, label: "album", softCap: 8 },
+    { id: 3, label: "release-family", softCap: 6 },
+    { id: 4, label: "artist-era", softCap: 8 },
+    { id: 5, label: "artist", softCap: 10 },
+    { id: 6, label: "collaborators", softCap: 8 },
+    { id: 7, label: "related", softCap: 10 },
+    { id: 8, label: "genre-mood", softCap: 10 },
+    { id: 9, label: "taste", softCap: 10 },
+    { id: 10, label: "global", softCap: 24 },
+  ];
+  function stampRing(tracks, ringId, label, parentArtist) {
+    var lid = label || (ECOSYSTEM_RINGS[ringId - 1] && ECOSYSTEM_RINGS[ringId - 1].label) || String(ringId);
+    return (tracks || []).map(function (t) {
+      if (!t || typeof t !== "object") return t;
+      var o = Object.assign({}, t);
+      o._ring = ringId;
+      o._ringSource = lid;
+      if (parentArtist) o._parentArtist = parentArtist;
+      return o;
+    });
+  }
+
+  function mergeParentGroups(groups, limit) {
+    var out = [];
+    var seen = Object.create(null);
+    var maxLen = 0;
+    (groups || []).forEach(function (g) {
+      if ((g || []).length > maxLen) maxLen = g.length;
+    });
+    for (var i = 0; i < maxLen && out.length < (limit || 40); i++) {
+      (groups || []).forEach(function (g) {
+        if (out.length >= (limit || 40)) return;
+        var t = g && g[i];
+        if (!t) return;
+        var id = trackId(t);
+        if (!id || seen[id]) return;
+        seen[id] = 1;
+        out.push(t);
+      });
+    }
+    return out;
+  }
+
+  function normalizeParents(list, fallbackArtistId, fallbackArtistName) {
+    var out = [];
+    var seen = Object.create(null);
+    (list || []).forEach(function (p) {
+      if (!p) return;
+      var name = String(p.artistName || p.name || "").trim();
+      var id = String(p.artistId || p.id || "").trim();
+      if (!name && !id) return;
+      var key = (id || name).toLowerCase();
+      if (seen[key]) return;
+      seen[key] = 1;
+      out.push({
+        artistId: id,
+        artistName: name,
+        weight: p.weight || p.count || 1,
+        year: p.year || 0,
+        genres: p.genres || [],
+      });
+    });
+    if (!out.length && (fallbackArtistId || fallbackArtistName)) {
+      out.push({
+        artistId: fallbackArtistId || "",
+        artistName: fallbackArtistName || "",
+        weight: 1,
+        year: 0,
+        genres: [],
+      });
+    }
+    out.sort(function (a, b) {
+      return (b.weight || 0) - (a.weight || 0);
+    });
+    return out.slice(0, 8);
+  }
+
+  /** Fan-out a ring runner across all parents; round-robin merge; stamp parent. */
+  function fanOutParents(parents, perParent, mapper) {
+    parents = parents || [];
+    if (!parents.length) return Promise.resolve([]);
+    return Promise.all(
+      parents.map(function (p) {
+        return Promise.resolve()
+          .then(function () {
+            return mapper(p);
+          })
+          .then(function (tracks) {
+            return (tracks || []).map(function (t) {
+              if (!t || typeof t !== "object") return t;
+              var o = Object.assign({}, t);
+              o._parentArtist = p.artistName || o._parentArtist || "";
+              return o;
+            });
+          })
+          .catch(function () {
+            return [];
+          });
+      })
+    ).then(function (groups) {
+      return mergeParentGroups(groups, perParent * Math.max(1, parents.length));
+    });
+  }
+
+  function seedYearOf(track, state) {
+    var y = parseInt(
+      (track && (track.year || track.albumYear)) ||
+        (state && state.year) ||
+        0,
+      10
+    );
+    return isFinite(y) && y > 1900 ? y : 0;
+  }
+
+  function parseCollaborators(track) {
+    var out = [];
+    var seen = Object.create(null);
+    function add(name) {
+      name = String(name || "")
+        .replace(/\s+/g, " ")
+        .replace(/^[&,]+|[&,]+$/g, "")
+        .trim();
+      if (!name || name.length < 2) return;
+      var k = name.toLowerCase();
+      if (seen[k]) return;
+      seen[k] = 1;
+      out.push(name);
+    }
+    var artists = (track && track.artists) || [];
+    var primary = String((artists[0] || (track && track.subtitle) || "").split(",")[0] || "").trim();
+    var pk = primary.toLowerCase();
+    artists.forEach(function (a, i) {
+      if (i === 0) return;
+      String(a || "")
+        .split(/,|&|\band\b/i)
+        .forEach(add);
+    });
+    var title = String((track && track.title) || "");
+    var m = title.match(/(?:feat\.?|ft\.?|featuring|with)\s+([^()[\]]+)/i);
+    if (m && m[1]) {
+      m[1].split(/,|&|\band\b/i).forEach(add);
+    }
+    return out.filter(function (n) {
+      return n.toLowerCase() !== pk;
+    });
+  }
+
+
+  function isMixedSurface(type) {
+    var t = String(type || "").toLowerCase();
+    if (t === "album" || t === "artist" || t === "directory" || t === "tracks-directory" || t === "videos-directory") {
+      return false;
+    }
+    return (
+      t === "playlist" ||
+      t === "library" ||
+      t === "liked" ||
+      t === "home" ||
+      t === "search" ||
+      t === "shelf" ||
+      t === "mixed" ||
+      t === "focus" ||
+      t === "listen" ||
+      /playlist|liked|library|home|search|shelf/.test(t)
+    );
+  }
+
+  /**
+   * Build weighted parents from a full source track list (playlist / likes / mixed shelf).
+   * Weight = presence count + light predictive taste boost when available.
+   */
+  function buildParentsFromTracks(tracks, opts) {
+    opts = opts || {};
+    var max = opts.max || 12;
+    var map = Object.create(null);
+    (tracks || []).forEach(function (t) {
+      if (!t) return;
+      var name = String(
+        (t.artists && t.artists[0]) || t.artist || t.subtitle || ""
+      )
+        .split(",")[0]
+        .trim();
+      var id = String(t.artistId || (t.artistIds && t.artistIds[0]) || "").trim();
+      if (!name && !id) return;
+      var key = (id || name).toLowerCase();
+      if (!map[key]) {
+        map[key] = {
+          artistId: id,
+          artistName: name,
+          weight: 0,
+          count: 0,
+          albumIds: [],
+          genres: [],
+        };
+      }
+      var p = map[key];
+      p.count += 1;
+      p.weight += 1;
+      if (!p.artistName && name) p.artistName = name;
+      if (!p.artistId && id) p.artistId = id;
+      var albumId = t.albumId || "";
+      if (albumId && p.albumIds.indexOf(albumId) < 0 && p.albumIds.length < 8) p.albumIds.push(albumId);
+      var genre = t.genre || t.category || "";
+      if (genre && p.genres.indexOf(genre) < 0 && p.genres.length < 4) p.genres.push(genre);
+      var y = parseInt(t.year || t.albumYear || "0", 10);
+      if (isFinite(y) && y > 1900) p.year = p.year || y;
+    });
+    var list = Object.keys(map).map(function (k) {
+      return map[k];
+    });
+    try {
+      if (window.SDMusicTaste && typeof window.SDMusicTaste.rankItems === "function") {
+        list.forEach(function (p) {
+          var probe = [{ videoId: "parent-" + (p.artistId || p.artistName), artists: [p.artistName], artist: p.artistName }];
+          var ranked = window.SDMusicTaste.rankItems(probe, {
+            softBoost: true,
+            seedItems: opts.seedItems || [],
+            entryPath: opts.entryPath || "playlist",
+          });
+          // Presence stays primary; taste nudges weight slightly.
+          p.weight += Math.min(3, (p.count || 1) * 0.15);
+          if (ranked && ranked[0] && ranked[0]._tasteScore) p.weight += Math.min(2, ranked[0]._tasteScore / 10);
+        });
+      }
+    } catch (e) {}
+    list.sort(function (a, b) {
+      return b.weight - a.weight || b.count - a.count;
+    });
+    return list.slice(0, max);
+  }
+
+  function resolveParents(seeds, meta) {
+    meta = meta || {};
+    var surface = String(meta.type || meta.surface || "").toLowerCase();
+    var built = buildParentsFromTracks(seeds, {
+      entryPath: meta.entryPath || surface,
+      seedItems: seeds.slice(0, 8),
+    });
+    var forceMixed = isMixedSurface(surface);
+    var multi = forceMixed && built.length > 1;
+    if (!built.length) {
+      var fallbackName =
+        meta.artistName ||
+        (seeds[0] && ((seeds[0].artists && seeds[0].artists[0]) || seeds[0].subtitle)) ||
+        "";
+      var fallbackId = meta.artistId || (seeds[0] && seeds[0].artistId) || "";
+      if (fallbackName || fallbackId) {
+        built = [{ artistId: fallbackId, artistName: fallbackName, weight: 1, count: 1, albumIds: [], genres: [] }];
+      }
+    }
+    if (!multi && built.length > 1 && (surface === "album" || surface === "artist")) {
+      // Single-tree start: keep primary parent only.
+      built = [built[0]];
+    }
+    return { parents: built, multiParent: !!(multi && built.length > 1), surface: surface };
+  }
+
+  function attach(deps) {
+    deps = deps || {};
+    var withTimeout = deps.withTimeout;
+    var searchSimilar = deps.searchSimilar;
+    var albumTracks = deps.albumTracks;
+    var artistEcosystem = deps.artistEcosystem;
+    var artistRadio = deps.artistRadio;
+    var watchNext = deps.watchNext;
+    var madeForYou = deps.madeForYou;
+    var classifyArtistShelves = deps.classifyArtistShelves;
+    var releaseSortKey = deps.releaseSortKey;
+    var fetchJson = deps.fetchJson;
+    var LISTEN = deps.LISTEN || "/api/music/listen";
+    var FETCH_MS = deps.FETCH_MS || 10000;
+    var escQ = deps.escQ;
+    var dedupeTracks = deps.dedupeTracks;
+
+  /** Related artists via artist search (name variants / "similar to"). Tight = fewer queries. */
+  function relatedArtistTracks(artistName, limit, tight) {
+    var name = String(artistName || "").trim();
+    if (!name) return Promise.resolve([]);
+    var queries = tight
+      ? ["artists like " + name, name + " radio"]
+      : [name + " songs", "artists like " + name, name + " type beat", name + " radio"];
+    return Promise.all(
+      queries.map(function (q) {
+        return withTimeout(searchSimilar(q, tight ? 8 : 10), FETCH_MS, []);
+      })
+    ).then(function (groups) {
+      var acc = [];
+      groups.forEach(function (g) {
+        acc = acc.concat(g || []);
+      });
+      return dedupeTracks(acc).slice(0, limit || 24);
+    });
+  }
+
+  /** Ring 2 — immediate source remainder (album / playlist / shelf seeds). */
+  function sourceRemainderTracks(ctx, albumId) {
+    var rem = ctx.sourceRemainder || ctx.sourceOrder || [];
+    var fromSource = (rem || []).filter(function (t) {
+      return t && (t.videoId || t.id);
+    });
+    if (fromSource.length) return Promise.resolve(fromSource);
+    if (albumId) return albumTracks(albumId);
+    return Promise.resolve([]);
+  }
+
+  /** Ring 3 — same release family (deluxe / versions / extras). */
+  function releaseFamilyTracks(current, albumTitle, artistName, excludeAlbumId, limit) {
+    var title = String(albumTitle || (current && current.albumTitle) || "").trim();
+    var artist = String(artistName || "").trim();
+    if (!title && !artist) return Promise.resolve([]);
+    var base = title || artist;
+    var queries = [
+      title ? title + " deluxe" : "",
+      title ? title + " extended" : "",
+      title ? title + " anniversary" : "",
+      title && artist ? artist + " " + title + " explicit" : "",
+      artist && title ? artist + " " + title + " remix" : "",
+      base + " bonus track",
+    ].filter(Boolean);
+    var acc = [];
+    var i = 0;
+    function next() {
+      if (acc.length >= (limit || 12) || i >= queries.length) {
+        return Promise.resolve(dedupeTracks(acc).slice(0, limit || 12));
+      }
+      var q = queries[i++];
+      return withTimeout(searchSimilar(q, 8), FETCH_MS, []).then(function (tracks) {
+        (tracks || []).forEach(function (t) {
+          if (excludeAlbumId && String(t.albumId || "") === String(excludeAlbumId)) return;
+          acc.push(t);
+        });
+        return next();
+      });
+    }
+    return next();
+  }
+
+  /** Ring 4 — same artist era/project (year ± band around seed). */
+  function artistEraTracks(artistId, artistName, seedYear, excludeAlbumId, limit) {
+    var year = seedYear || 0;
+    var band = 3;
+    function inEra(it) {
+      if (!year) return true;
+      var y = releaseSortKey(it);
+      if (!y) return true;
+      return Math.abs(y - year) <= band;
+    }
+    if (!artistId && !artistName) return Promise.resolve([]);
+    var head = artistId
+      ? fetchJson(LISTEN + "/artist/" + escQ(artistId)).catch(function () {
+          return null;
+        })
+      : Promise.resolve(null);
+    return head.then(function (data) {
+      if (!data) {
+        return artistEcosystem({
+          artistId: artistId,
+          artistName: artistName,
+          excludeAlbumId: excludeAlbumId || "",
+          mode: "album-extend",
+          maxAlbums: 4,
+          maxTracks: limit || 16,
+        });
+      }
+      if (data.title && !artistName) artistName = data.title;
+      var parts = classifyArtistShelves(data.shelves || []);
+      var albums = (parts.albums || [])
+        .concat(parts.singles || [])
+        .filter(function (a) {
+          return a && a.browseId && String(a.browseId) !== String(excludeAlbumId || "");
+        })
+        .filter(inEra);
+      var popular = ((parts.songs || []) || []).filter(function (t) {
+        return t && t.videoId;
+      });
+      var releaseQueue = albums.slice(0, 5);
+      var acc = year ? [] : popular.slice(0, 6);
+      var i = 0;
+      function nextPair() {
+        if (acc.length >= (limit || 16) || i >= releaseQueue.length) {
+          return Promise.resolve(dedupeTracks(acc).slice(0, limit || 16));
+        }
+        var batch = releaseQueue.slice(i, i + 2);
+        i += 2;
+        return Promise.all(
+          batch.map(function (rel) {
+            return albumTracks(rel.browseId).then(function (tracks) {
+              return (tracks || []).map(function (t) {
+                return Object.assign({}, t, {
+                  albumId: t.albumId || rel.browseId,
+                  albumTitle: t.albumTitle || rel.title || "",
+                  year: t.year || rel.year || "",
+                });
+              });
+            });
+          })
+        ).then(function (groups) {
+          groups.forEach(function (tracks) {
+            acc = acc.concat(tracks || []);
+          });
+          return nextPair();
+        });
+      }
+      return nextPair();
+    });
+  }
+
+  /** Ring 6 — direct collaborators / features. */
+  function collaboratorTracks(track, limit) {
+    var names = parseCollaborators(track || {});
+    if (!names.length) return Promise.resolve([]);
+    return Promise.all(
+      names.slice(0, 4).map(function (n) {
+        return withTimeout(searchSimilar(n + " songs", 8), FETCH_MS, []);
+      })
+    ).then(function (groups) {
+      var acc = [];
+      groups.forEach(function (g) {
+        acc = acc.concat(g || []);
+      });
+      return dedupeTracks(acc).slice(0, limit || 16);
+    });
+  }
+
+  /** Ring 8 — genre · tempo · era · mood cluster (watch + tagged search). */
+  function genreMoodTracks(current, vid, limit) {
+    var title = (current && current.title) || "";
+    var artist =
+      (current && current.artists && current.artists[0]) || (current && current.subtitle) || "";
+    var year = seedYearOf(current, null);
+    var genre = (current && (current.genre || current.category)) || "";
+    var queries = [
+      genre ? genre + " hits" : "",
+      genre && year ? genre + " " + year : "",
+      year ? String(year) + " hits" : "",
+      artist ? artist + " type beat" : "",
+      title && artist ? title + " " + artist + " mix" : "",
+    ].filter(Boolean);
+    var head = vid ? watchNext(vid, 20) : Promise.resolve([]);
+    return head.then(function (watch) {
+      var acc = watch || [];
+      var i = 0;
+      function next() {
+        if (acc.length >= (limit || 16) || i >= queries.length) {
+          return Promise.resolve(dedupeTracks(acc).slice(0, limit || 20));
+        }
+        var q = queries[i++];
+        return withTimeout(searchSimilar(q, 8), FETCH_MS, []).then(function (tracks) {
+          acc = acc.concat(tracks || []);
+          return next();
+        });
+      }
+      return next();
+    });
+  }
+
+  /** Ring 9 — session / taste graph (co-occurrence, TOD, Made for you, likes). */
+  function sessionTasteTracks(limit) {
+    var local = madeForYou(limit || 20);
+    return Promise.resolve(local);
+  }
+
+  /** Pull playable tracks from Listen home shelves (trending / charts / mixes). */
+
+    return {
+      relatedArtistTracks: relatedArtistTracks,
+      sourceRemainderTracks: sourceRemainderTracks,
+      releaseFamilyTracks: releaseFamilyTracks,
+      artistEraTracks: artistEraTracks,
+      collaboratorTracks: collaboratorTracks,
+      genreMoodTracks: genreMoodTracks,
+      sessionTasteTracks: sessionTasteTracks,
+    };
+  }
+
+  window.SDMusicEcosystemRings = {
+    RINGS: ECOSYSTEM_RINGS,
+    RING_TARGET: RING_TARGET,
+    RING_FLOOR: RING_FLOOR,
+    stampRing: stampRing,
+    mergeParentGroups: mergeParentGroups,
+    normalizeParents: normalizeParents,
+    fanOutParents: fanOutParents,
+    seedYearOf: seedYearOf,
+    parseCollaborators: parseCollaborators,
+    isMixedSurface: isMixedSurface,
+    buildParentsFromTracks: buildParentsFromTracks,
+    resolveParents: resolveParents,
+    attach: attach,
+    trackId: trackId,
+  };
+})();
+
+;/* === music_artist_ecosystem === */
+/**
+ * Artist ecosystem Up Next builder (single-tree album/directory continuity).
+ * Bound from SDMusicSmartQueue via attachArtistEcosystem(deps).
+ * API: window.SDMusicArtistEcosystem
+ */
+(function () {
+  if (window.SDMusicArtistEcosystem) return;
+
+  function attachArtistEcosystem(deps) {
+    deps = deps || {};
+    var classifyArtistShelves = deps.classifyArtistShelves;
+    var releaseSortKey = deps.releaseSortKey;
+    var fetchJson = deps.fetchJson;
+    var albumTracks = deps.albumTracks;
+    var searchSimilar = deps.searchSimilar;
+    var tasteRank = deps.tasteRank;
+    var dedupeTracks = deps.dedupeTracks;
+    var trackId = deps.trackId;
+    var escQ = deps.escQ;
+    var LISTEN = deps.LISTEN || "/api/music/listen";
+    var withTimeout = deps.withTimeout;
+    var FETCH_MS = deps.FETCH_MS || 10000;
+
+  /**
+   * Artist-ecosystem Up Next builder (Spotify-like session continuity).
+   * mode:
+   *  - album-extend: other albums (by year/popularity shelf order) then singles; skip current album tracks
+   *  - directory: popular + discography (shuffled/taste-ranked) before Autoplay
+   * onBatch(tracks): optional progressive append callback
+   */
+  function artistEcosystem(opts) {
+    opts = opts || {};
+    var artistId = opts.artistId || "";
+    var artistName = opts.artistName || "";
+    var excludeAlbumId = String(opts.excludeAlbumId || "");
+    var excludeIds = opts.excludeIds || Object.create(null);
+    var mode = opts.mode || "directory";
+    var maxAlbums = opts.maxAlbums || (mode === "album-extend" ? 8 : 5);
+    var maxTracks = opts.maxTracks || 72;
+    var onBatch = typeof opts.onBatch === "function" ? opts.onBatch : null;
+    var entryPath = opts.entryPath || mode;
+    var rankOpts = { entryPath: entryPath, softBoost: false, seedItems: opts.seedItems || [] };
+
+    function notExcluded(t) {
+      if (!t || !trackId(t)) return false;
+      if (excludeIds[trackId(t)]) return false;
+      if (excludeAlbumId && String(t.albumId || "") === excludeAlbumId) return false;
+      return true;
+    }
+
+    function stampArtist(t, aid, aname) {
+      var o = Object.assign({}, t);
+      if (aid) {
+        o.artistId = o.artistId || aid;
+        o.artistIds = o.artistIds || [aid];
+      }
+      if (aname && (!o.artists || !o.artists.length)) o.artists = [aname];
+      o._ecosystem = mode;
+      return o;
+    }
+
+    function emitBatch(list) {
+      var cleaned = dedupeTracks((list || []).filter(notExcluded).map(function (t) {
+        return stampArtist(t, artistId, artistName);
+      }));
+      if (cleaned.length && onBatch) {
+        try {
+          onBatch(cleaned.slice());
+        } catch (e) {}
+      }
+      return cleaned;
+    }
+
+    function resolveArtistId() {
+      if (artistId) return Promise.resolve(String(artistId));
+      if (!artistName) return Promise.resolve("");
+      return fetchJson(LISTEN + "/search?q=" + escQ(artistName) + "&filter=artists&limit=8")
+        .then(function (data) {
+          var hit = ((data && data.items) || []).find(function (i) {
+            var id = (i && (i.browseId || i.channelId || i.artistId)) || "";
+            return id && String(id).indexOf("MPRE") !== 0;
+          });
+          return hit ? String(hit.browseId || hit.channelId || hit.artistId) : "";
+        })
+        .catch(function () {
+          return "";
+        });
+    }
+
+    function fetchReleaseTracks(browseId, albumTitle) {
+      return albumTracks(browseId).then(function (tracks) {
+        return (tracks || []).map(function (t) {
+          return Object.assign({}, t, {
+            albumId: t.albumId || browseId,
+            albumTitle: t.albumTitle || albumTitle || "",
+          });
+        });
+      });
+    }
+
+    return resolveArtistId().then(function (aid) {
+      artistId = aid || artistId;
+      if (!artistId && !artistName) return [];
+
+      var head = artistId
+        ? fetchJson(LISTEN + "/artist/" + escQ(artistId)).catch(function () {
+            return null;
+          })
+        : Promise.resolve(null);
+
+      return head.then(function (data) {
+        if (!data || !data.ok) {
+          return searchSimilar(artistName || "", 28).then(function (t) {
+            return tasteRank(emitBatch(t), rankOpts).slice(0, maxTracks);
+          });
+        }
+        if (data.title && !artistName) artistName = data.title;
+        var parts = classifyArtistShelves(data.shelves || []);
+        var popular = (parts.songs || []).filter(notExcluded);
+        var albums = (parts.albums || [])
+          .filter(function (a) {
+            return a && a.browseId && String(a.browseId) !== excludeAlbumId;
+          })
+          .slice();
+        // Prefer newer years first when year present; else keep YTM shelf (popularity) order.
+        var hasYear = albums.some(function (a) {
+          return releaseSortKey(a) > 1900;
+        });
+        if (hasYear) {
+          albums.sort(function (a, b) {
+            return releaseSortKey(b) - releaseSortKey(a);
+          });
+        }
+        var singles = (parts.singles || []).filter(function (a) {
+          return a && (a.browseId || a.videoId);
+        });
+
+        var acc = [];
+        if (mode === "directory") {
+          // Stay on artist: popular first (taste/shuffle-friendly), then discography.
+          acc = acc.concat(tasteRank(emitBatch(popular), rankOpts));
+        }
+
+        var releaseQueue = [];
+        if (mode === "album-extend") {
+          albums.slice(0, maxAlbums).forEach(function (a) {
+            releaseQueue.push({ browseId: a.browseId, title: a.title || "", kind: "album" });
+          });
+          singles.slice(0, Math.max(4, maxAlbums)).forEach(function (a) {
+            if (a.browseId) releaseQueue.push({ browseId: a.browseId, title: a.title || "", kind: "single" });
+            else if (a.videoId && notExcluded(a)) acc.push(stampArtist(a, artistId, artistName));
+          });
+        } else {
+          // directory: mix albums + singles after popular
+          albums.slice(0, maxAlbums).forEach(function (a) {
+            releaseQueue.push({ browseId: a.browseId, title: a.title || "", kind: "album" });
+          });
+          singles.slice(0, 6).forEach(function (a) {
+            if (a.browseId) releaseQueue.push({ browseId: a.browseId, title: a.title || "", kind: "single" });
+            else if (a.videoId && notExcluded(a)) acc.push(stampArtist(a, artistId, artistName));
+          });
+        }
+
+        if (acc.length) emitBatch(acc);
+
+        // Serial-ish album fetches (2 at a time) so first track isn't blocked and Up Next grows.
+        var i = 0;
+        function nextPair() {
+          if (acc.length >= maxTracks || i >= releaseQueue.length) {
+            return Promise.resolve(acc);
+          }
+          var batch = releaseQueue.slice(i, i + 2);
+          i += 2;
+          return Promise.all(
+            batch.map(function (rel) {
+              return fetchReleaseTracks(rel.browseId, rel.title);
+            })
+          ).then(function (groups) {
+            groups.forEach(function (tracks) {
+              var more = emitBatch(tracks);
+              if (mode === "directory") more = tasteRank(more, rankOpts);
+              acc = dedupeTracks(acc.concat(more));
+            });
+            return nextPair();
+          });
+        }
+
+        return nextPair().then(function () {
+          // If still thin, fold leftover popular (album-extend) or search.
+          if (mode === "album-extend" && popular.length) {
+            acc = dedupeTracks(acc.concat(emitBatch(popular)));
+          }
+          if (acc.length < 6 && artistName) {
+            return searchSimilar(artistName, 16).then(function (t) {
+              var more = emitBatch(t);
+              if (mode === "directory") more = tasteRank(more, rankOpts);
+              return dedupeTracks(acc.concat(more)).slice(0, maxTracks);
+            });
+          }
+          // Album-extend: preserve release order (albums → singles). Directory: predictive rank.
+          if (mode === "directory") return tasteRank(dedupeTracks(acc), rankOpts).slice(0, maxTracks);
+          return dedupeTracks(acc).slice(0, maxTracks);
+        });
+      });
+    });
+  }
+
+
+    return artistEcosystem;
+  }
+
+  window.SDMusicArtistEcosystem = { attach: attachArtistEcosystem };
+})();
+
+;/* === music_uq_ecosystem === */
+/**
+ * Unified Queue artist / multi-parent ecosystem prefetch.
+ * API: window.SDMusicUQEcosystem.bind(ctx)
+ */
+(function () {
+  if (window.SDMusicUQEcosystem) return;
+
+  function bind(ctx) {
+    var trackId = ctx.trackId;
+    var cloneTrack = ctx.cloneTrack;
+    var extendUpNext = ctx.extendUpNext;
+    var prepareAutoplay = ctx.prepareAutoplay;
+    var getSession = ctx.getSession;
+    var emit = ctx.emit;
+    var ecosystemRef = ctx.ecosystemRef; // { inflight }
+
+  function sess() { return getSession(); }
+
+  function shouldExtendArtistEcosystem(meta) {
+    meta = meta || {};
+    var t = String(meta.type || meta.surface || "").toLowerCase();
+    return t === "album" || t === "directory" || t === "tracks-directory" || t === "videos-directory";
+  }
+
+  /**
+   * Prefetch artist discography into Up Next without blocking first track.
+   * Album: rest-of-album already in upNext → append other albums then singles.
+   * Directory: fill artist popular + discography before Autoplay.
+   */
+  function scheduleArtistEcosystem(meta, seeds) {
+    meta = meta || {};
+    if (!shouldExtendArtistEcosystem(meta)) return Promise.resolve([]);
+    var SQ = window.SDMusicSmartQueue;
+    if (!SQ || typeof SQ.artistEcosystem !== "function") return Promise.resolve([]);
+
+    var excludeIds = Object.create(null);
+    (seeds || []).forEach(function (t) {
+      var id = trackId(t);
+      if (id) excludeIds[id] = 1;
+    });
+    (sess().upNext || []).forEach(function (t) {
+      var id = trackId(t);
+      if (id) excludeIds[id] = 1;
+    });
+    if (sess().now) {
+      var nid = trackId(sess().now);
+      if (nid) excludeIds[nid] = 1;
+    }
+
+    var surface = String(meta.type || meta.surface || "").toLowerCase();
+    var mode = surface === "album" ? "album-extend" : "directory";
+    var artistId =
+      meta.artistId ||
+      (sess().now && (sess().now.artistId || (sess().now.artistIds && sess().now.artistIds[0]))) ||
+      (sess().source && sess().source.artistId) ||
+      "";
+    var artistName =
+      meta.artistName ||
+      (sess().now && ((sess().now.artists && sess().now.artists[0]) || sess().now.subtitle)) ||
+      (sess().source && sess().source.artistName) ||
+      "";
+
+    sess().ecosystemPending = true;
+    if (ecosystemRef.inflight) {
+      // Allow overlapping schedule only for newest session; drop flag when done.
+    }
+
+    var seenBatch = Object.create(null);
+    ecosystemRef.inflight = SQ.artistEcosystem({
+      artistId: artistId,
+      artistName: artistName,
+      excludeAlbumId: surface === "album" ? meta.id || meta.albumId || "" : "",
+      excludeIds: excludeIds,
+      mode: mode,
+      entryPath: surface || mode,
+      seedItems: seeds || (sess().now ? [sess().now] : []),
+      maxAlbums: mode === "album-extend" ? 8 : 5,
+      maxTracks: 72,
+      onBatch: function (batch) {
+        var fresh = (batch || []).filter(function (t) {
+          var id = trackId(t);
+          if (!id || seenBatch[id] || excludeIds[id]) return false;
+          seenBatch[id] = 1;
+          excludeIds[id] = 1;
+          return true;
+        });
+        if (!fresh.length) return;
+        extendUpNext(
+          fresh.map(function (t) {
+            var o = cloneTrack(t);
+            o._ring = mode === "album-extend" ? 4 : 5;
+            o._ringSource = mode === "album-extend" ? "artist-era" : "artist";
+            return o;
+          }),
+          {
+          layer: "artist-ecosystem",
+          entryPath: surface,
+          // Album continuity: keep release order from builder; directory may rank.
+          rank: mode === "directory",
+          shuffle: mode === "directory" && sess().shuffle,
+        }
+        );
+      },
+    })
+      .then(function (all) {
+        var fresh = (all || []).filter(function (t) {
+          var id = trackId(t);
+          if (!id || seenBatch[id] || excludeIds[id]) return false;
+          seenBatch[id] = 1;
+          return true;
+        });
+        if (fresh.length) {
+          extendUpNext(
+            fresh.map(function (t) {
+              var o = cloneTrack(t);
+              o._ring = mode === "album-extend" ? 4 : 5;
+              o._ringSource = mode === "album-extend" ? "artist-era" : "artist";
+              return o;
+            }),
+            {
+            layer: "artist-ecosystem",
+            entryPath: surface,
+            rank: mode === "directory",
+            shuffle: mode === "directory" && sess().shuffle,
+          }
+          );
+        }
+        return sess().upNext;
+      })
+      .catch(function () {
+        return sess().upNext;
+      })
+      .finally(function () {
+        sess().ecosystemPending = false;
+        ecosystemRef.inflight = null;
+        emit();
+        // Top up Autoplay after ecosystem settles (still after Up Next).
+        prepareAutoplay();
+      });
+    return ecosystemRef.inflight;
+  }
+
+  /**
+   * Mixed playlist / likes: prefetch catalogs from ALL weighted parents into Up Next
+   * (interleaved) — never collapse to the currently playing track's artist alone.
+   */
+  function scheduleMultiParentEcosystem(parents, seeds) {
+    var SQ = window.SDMusicSmartQueue;
+    if (!SQ || typeof SQ.artistEcosystem !== "function") {
+      prepareAutoplay();
+      return Promise.resolve([]);
+    }
+    parents = (parents || []).slice(0, 6);
+    if (parents.length < 2) return scheduleArtistEcosystem(sess().source || {}, seeds);
+
+    var excludeIds = Object.create(null);
+    (seeds || []).forEach(function (t) {
+      var id = trackId(t);
+      if (id) excludeIds[id] = 1;
+    });
+    (sess().upNext || []).forEach(function (t) {
+      var id = trackId(t);
+      if (id) excludeIds[id] = 1;
+    });
+    if (sess().now) {
+      var nid = trackId(sess().now);
+      if (nid) excludeIds[nid] = 1;
+    }
+
+    sess().ecosystemPending = true;
+    var perParent = Math.max(3, Math.ceil(24 / parents.length));
+    ecosystemRef.inflight = Promise.all(
+      parents.map(function (p) {
+        return SQ.artistEcosystem({
+          artistId: p.artistId || "",
+          artistName: p.artistName || "",
+          excludeIds: excludeIds,
+          mode: "directory",
+          entryPath: "playlist-multi",
+          seedItems: seeds || [],
+          maxAlbums: 2,
+          maxTracks: perParent,
+        })
+          .then(function (tracks) {
+            return (tracks || []).map(function (t) {
+              var o = cloneTrack(t);
+              o._ring = 5;
+              o._ringSource = "artist";
+              o._parentArtist = p.artistName || "";
+              return o;
+            });
+          })
+          .catch(function () {
+            return [];
+          });
+      })
+    )
+      .then(function (groups) {
+        var merged = [];
+        if (SQ.mergeParentGroups) merged = SQ.mergeParentGroups(groups, 36);
+        else {
+          var maxLen = 0;
+          groups.forEach(function (g) {
+            if (g.length > maxLen) maxLen = g.length;
+          });
+          for (var i = 0; i < maxLen; i++) {
+            groups.forEach(function (g) {
+              if (g[i]) merged.push(g[i]);
+            });
+          }
+        }
+        var fresh = merged.filter(function (t) {
+          var id = trackId(t);
+          if (!id || excludeIds[id]) return false;
+          excludeIds[id] = 1;
+          return true;
+        });
+        if (fresh.length) {
+          extendUpNext(fresh, {
+            layer: "multi-parent-ecosystem",
+            entryPath: "playlist",
+            rank: !!sess().autoplayBias,
+            shuffle: false,
+          });
+        }
+        return sess().upNext;
+      })
+      .catch(function () {
+        return sess().upNext;
+      })
+      .finally(function () {
+        sess().ecosystemPending = false;
+        ecosystemRef.inflight = null;
+        emit();
+        prepareAutoplay();
+      });
+    return ecosystemRef.inflight;
+  }
+
+
+    return {
+      shouldExtendArtistEcosystem: shouldExtendArtistEcosystem,
+      scheduleArtistEcosystem: scheduleArtistEcosystem,
+      scheduleMultiParentEcosystem: scheduleMultiParentEcosystem,
+    };
+  }
+
+  window.SDMusicUQEcosystem = { bind: bind };
+})();
+
 ;/* === music_unified_queue === */
 /**
  * StepDaddy Music — Unified Listen session timeline.
@@ -28068,6 +29052,8 @@
     return {
       v: 1,
       source: null, // { type, id, title, order[], startTrackId, artistId, artistName, entryPath }
+      parents: [], // multi-parent ecosystem: [{artistId, artistName, weight, count}]
+      multiParent: false,
       now: null,
       history: [],
       playNext: [], // FIFO of manual "Play Next" — newest insert at front
@@ -28084,14 +29070,25 @@
     };
   }
 
-  var session = emptySession();
-  var persistTimer = null;
-  var autoplayInflight = null;
-  var autoplayInflightAt = 0;
-  var autoplayPrepGen = 0;
-  var ecosystemInflight = null;
-  var listeners = [];
-  var AUTOPLAY_PREP_MS = 11000;
+  /** Surfaces that often mix many artists — parents = union of source, not current track only. */
+  function isMixedSurface(type) {
+    var api = window.SDMusicEcosystemRings;
+    if (api && api.isMixedSurface) return api.isMixedSurface(type);
+    var t = String(type || "").toLowerCase();
+    return !(t === "album" || t === "artist" || t === "directory");
+  }
+
+  function buildParentsFromTracks(tracks, opts) {
+    var api = window.SDMusicEcosystemRings;
+    if (api && api.buildParentsFromTracks) return api.buildParentsFromTracks(tracks, opts);
+    return [];
+  }
+
+  function resolveParents(seeds, meta) {
+    var api = window.SDMusicEcosystemRings;
+    if (api && api.resolveParents) return api.resolveParents(seeds, meta);
+    return { parents: [], multiParent: false, surface: String((meta && (meta.type || meta.surface)) || "").toLowerCase() };
+  }
 
   function emit() {
     var snap = getTimeline();
@@ -28212,113 +29209,32 @@
     return added.length;
   }
 
-  function shouldExtendArtistEcosystem(meta) {
-    meta = meta || {};
-    var t = String(meta.type || meta.surface || "").toLowerCase();
-    return t === "album" || t === "directory" || t === "tracks-directory" || t === "videos-directory";
-  }
-
-  /**
-   * Prefetch artist discography into Up Next without blocking first track.
-   * Album: rest-of-album already in upNext → append other albums then singles.
-   * Directory: fill artist popular + discography before Autoplay.
-   */
-  function scheduleArtistEcosystem(meta, seeds) {
-    meta = meta || {};
-    if (!shouldExtendArtistEcosystem(meta)) return Promise.resolve([]);
-    var SQ = window.SDMusicSmartQueue;
-    if (!SQ || typeof SQ.artistEcosystem !== "function") return Promise.resolve([]);
-
-    var excludeIds = Object.create(null);
-    (seeds || []).forEach(function (t) {
-      var id = trackId(t);
-      if (id) excludeIds[id] = 1;
-    });
-    (session.upNext || []).forEach(function (t) {
-      var id = trackId(t);
-      if (id) excludeIds[id] = 1;
-    });
-    if (session.now) {
-      var nid = trackId(session.now);
-      if (nid) excludeIds[nid] = 1;
+  var _uqEco = null;
+  function uqEco() {
+    if (_uqEco) return _uqEco;
+    var api = window.SDMusicUQEcosystem;
+    if (!api || typeof api.bind !== "function") {
+      _uqEco = {
+        shouldExtendArtistEcosystem: function () { return false; },
+        scheduleArtistEcosystem: function () { return Promise.resolve([]); },
+        scheduleMultiParentEcosystem: function () { return Promise.resolve([]); },
+      };
+      return _uqEco;
     }
-
-    var surface = String(meta.type || meta.surface || "").toLowerCase();
-    var mode = surface === "album" ? "album-extend" : "directory";
-    var artistId =
-      meta.artistId ||
-      (session.now && (session.now.artistId || (session.now.artistIds && session.now.artistIds[0]))) ||
-      (session.source && session.source.artistId) ||
-      "";
-    var artistName =
-      meta.artistName ||
-      (session.now && ((session.now.artists && session.now.artists[0]) || session.now.subtitle)) ||
-      (session.source && session.source.artistName) ||
-      "";
-
-    session.ecosystemPending = true;
-    if (ecosystemInflight) {
-      // Allow overlapping schedule only for newest session; drop flag when done.
-    }
-
-    var seenBatch = Object.create(null);
-    ecosystemInflight = SQ.artistEcosystem({
-      artistId: artistId,
-      artistName: artistName,
-      excludeAlbumId: surface === "album" ? meta.id || meta.albumId || "" : "",
-      excludeIds: excludeIds,
-      mode: mode,
-      entryPath: surface || mode,
-      seedItems: seeds || (session.now ? [session.now] : []),
-      maxAlbums: mode === "album-extend" ? 8 : 5,
-      maxTracks: 72,
-      onBatch: function (batch) {
-        var fresh = (batch || []).filter(function (t) {
-          var id = trackId(t);
-          if (!id || seenBatch[id] || excludeIds[id]) return false;
-          seenBatch[id] = 1;
-          excludeIds[id] = 1;
-          return true;
-        });
-        if (!fresh.length) return;
-        extendUpNext(fresh, {
-          layer: "artist-ecosystem",
-          entryPath: surface,
-          // Album continuity: keep release order from builder; directory may rank.
-          rank: mode === "directory",
-          shuffle: mode === "directory" && session.shuffle,
-        });
-      },
-    })
-      .then(function (all) {
-        var fresh = (all || []).filter(function (t) {
-          var id = trackId(t);
-          if (!id || seenBatch[id] || excludeIds[id]) return false;
-          seenBatch[id] = 1;
-          return true;
-        });
-        if (fresh.length) {
-          extendUpNext(fresh, {
-            layer: "artist-ecosystem",
-            entryPath: surface,
-            rank: mode === "directory",
-            shuffle: mode === "directory" && session.shuffle,
-          });
-        }
-        return session.upNext;
-      })
-      .catch(function () {
-        return session.upNext;
-      })
-      .finally(function () {
-        session.ecosystemPending = false;
-        ecosystemInflight = null;
-        emit();
-        // Top up Autoplay after ecosystem settles (still after Up Next).
-        prepareAutoplay();
-      });
-    return ecosystemInflight;
+    _uqEco = api.bind({
+      trackId: trackId,
+      cloneTrack: cloneTrack,
+      extendUpNext: extendUpNext,
+      prepareAutoplay: function () { return prepareAutoplay.apply(null, arguments); },
+      getSession: function () { return session; },
+      emit: emit,
+      ecosystemRef: { get inflight() { return ecosystemInflight; }, set inflight(v) { ecosystemInflight = v; } },
+    });
+    return _uqEco;
   }
+  function shouldExtendArtistEcosystem(meta) { return uqEco().shouldExtendArtistEcosystem(meta); }
+  function scheduleArtistEcosystem(meta, seeds) { return uqEco().scheduleArtistEcosystem(meta, seeds); }
+  function scheduleMultiParentEcosystem(parents, seeds) { return uqEco().scheduleMultiParentEcosystem(parents, seeds); }
 
   function recentIds() {
     var ids = Object.create(null);
@@ -28363,6 +29279,17 @@
     var clearManual = opts.clearManual !== false;
     var prevManual = clearManual ? [] : session.playNext.slice();
 
+    var parentInfo = resolveParents(seeds, meta);
+    var ring2Label =
+      (meta.type === "playlist" && "playlist") ||
+      (meta.type === "liked" && "liked") ||
+      (meta.type === "library" && "library") ||
+      (meta.type === "home" && "home") ||
+      (meta.type === "search" && "search") ||
+      (meta.type === "album" && "album") ||
+      (meta.type === "artist" && "artist") ||
+      (parentInfo.multiParent ? "playlist" : "album");
+
     session.source = {
       type: meta.type || meta.surface || "listen",
       id: meta.id || meta.albumId || meta.artistId || meta.playlistId || "",
@@ -28376,9 +29303,20 @@
         "",
       entryPath: meta.entryPath || meta.type || meta.surface || "listen",
       albumId: meta.albumId || (meta.type === "album" ? meta.id : "") || (seeds[idx] && seeds[idx].albumId) || "",
+      multiParent: parentInfo.multiParent,
+      parents: parentInfo.parents,
     };
+    session.parents = parentInfo.parents;
+    session.multiParent = parentInfo.multiParent;
     session.now = cloneTrack(seeds[idx]);
-    session.upNext = seeds.slice(idx + 1).map(cloneTrack);
+    session.upNext = seeds.slice(idx + 1).map(function (t) {
+      var o = cloneTrack(t);
+      o._ring = 2;
+      o._ringSource = ring2Label;
+      var pname = (t.artists && t.artists[0]) || t.subtitle || "";
+      if (pname) o._parentArtist = pname;
+      return o;
+    });
     session.history = [];
     session.playNext = prevManual;
     session.autoplay = [];
@@ -28412,9 +29350,10 @@
         window.SDMusicTaste.recordEntry(session.source.entryPath);
       }
     } catch (e) {}
-    // Prefetch artist ecosystem in background (album / directory) — don't block Now Playing.
+    // Single-tree: prefetch artist ecosystem. Multi-parent: union prefetch (all parents).
     if (opts.extendArtistEcosystem !== false) {
-      scheduleArtistEcosystem(session.source, seeds);
+      if (session.multiParent) scheduleMultiParentEcosystem(session.parents, seeds);
+      else scheduleArtistEcosystem(session.source, seeds);
     }
     prepareAutoplay();
     return session.now;
@@ -28655,7 +29594,11 @@
   function prepareAutoplay(opts) {
     opts = opts || {};
     if (!session.autoplayEnabled) return Promise.resolve([]);
-    if (!opts.force && session.autoplay.length >= 8) return Promise.resolve(session.autoplay);
+    // Prefetch outer rings before Up Next / Autoplay empties.
+    if (!opts.force && session.autoplay.length >= 8 && (session.upNext || []).length >= 3) {
+      return Promise.resolve(session.autoplay);
+    }
+    if (!opts.force && session.autoplay.length >= 12) return Promise.resolve(session.autoplay);
 
     // Recover from a hung prepare so Autoplay never sits on "Preparing…" forever.
     if (autoplayInflight && !opts.force) {
@@ -28729,15 +29672,23 @@
             (session.source && session.source.albumId) ||
             (session.source && session.source.type === "album" && session.source.id) ||
             "",
+          albumTitle: (session.source && session.source.title) || (seed && seed.albumTitle) || "",
           artistId: (seed && seed.artistId) || (session.source && session.source.artistId) || "",
           title: seed && seed.title,
           subtitle: (seed && ((seed.artists && seed.artists.join(", ")) || seed.subtitle)) || "",
+          year: seed && seed.year,
           entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
         },
         queue: [],
         track: seed,
         source: "listen",
         entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
+        sourceRemainder: (session.upNext || []).slice(),
+        sourceOrder: (session.source && session.source.order) || [],
+        sourceMeta: session.source || null,
+        history: (session.history || []).slice(),
+        parents: session.parents || (session.source && session.source.parents) || [],
+        multiParent: !!(session.multiParent || (session.source && session.source.multiParent)),
         onBatch: function (batch) {
           // Progressive fill — UI leaves "Preparing…" as soon as first candidates land.
           appendAutoplay(batch);
@@ -28796,6 +29747,13 @@
       seen[id] = 1;
       var item = cloneTrack(t);
       item._queueLayer = "autoplay";
+      if (t._ring != null) item._ring = t._ring;
+      if (t._ringSource) item._ringSource = t._ringSource;
+      if (t._parentArtist) item._parentArtist = t._parentArtist;
+      else if (!item._ringSource && item._ring == null) {
+        item._ring = 10;
+        item._ringSource = "global";
+      }
       session.autoplay.push(item);
     });
     if (window.SDMusicTaste && typeof window.SDMusicTaste.rankItems === "function") {
@@ -28828,6 +29786,8 @@
       autoplay: session.autoplay.slice(),
       source: session.source,
       sourceLabel: srcTitle,
+      parents: (session.parents || []).slice(),
+      multiParent: !!session.multiParent,
       shuffle: session.shuffle,
       repeat: session.repeat,
       autoplayEnabled: session.autoplayEnabled,
@@ -28886,6 +29846,9 @@
     prepareAutoplay: prepareAutoplay,
     extendUpNext: extendUpNext,
     scheduleArtistEcosystem: scheduleArtistEcosystem,
+    scheduleMultiParentEcosystem: scheduleMultiParentEcosystem,
+    buildParentsFromTracks: buildParentsFromTracks,
+    isMixedSurface: isMixedSurface,
     getTimeline: getTimeline,
     asFlatQueue: asFlatQueue,
     currentIndex: currentIndex,
@@ -28909,9 +29872,8 @@
 ;/* === music_smart_queue === */
 /**
  * StepDaddy Music — always-on smart queue.
- * When prev/next would dead-end (empty/short queue), refill seamlessly from
- * source-aware fallbacks: album → artist radio → watch next → made-for-you →
- * dial neighbors → search-similar → taste scorer.
+ * Autoplay expands outward on a 10-ring ecosystem ladder (most → least specific).
+ * Exhaust / soft-cap each ring before widening; never dead-end (ring 10 floor).
  * API: window.SDMusicSmartQueue
  */
 (function () {
@@ -28924,6 +29886,34 @@
   var inflightStartedAt = 0;
   var inflightGen = 0;
   var lastFlow = null;
+
+  var ER = null;
+  var ECOSYSTEM_RINGS = [];
+  var RING_TARGET = 28;
+  var RING_FLOOR = 4;
+  var stampRing = function () { return []; };
+  var mergeParentGroups = function (g, n) { return []; };
+  var normalizeParents = function () { return []; };
+  var fanOutParents = function () { return Promise.resolve([]); };
+  var seedYearOf = function () { return 0; };
+  var parseCollaborators = function () { return []; };
+  var relatedArtistTracks, sourceRemainderTracks, releaseFamilyTracks;
+  var artistEraTracks, collaboratorTracks, genreMoodTracks, sessionTasteTracks;
+
+  function bindEcosystemRings() {
+    var api = window.SDMusicEcosystemRings;
+    if (!api) return;
+    ER = api;
+    ECOSYSTEM_RINGS = api.RINGS || ECOSYSTEM_RINGS;
+    RING_TARGET = api.RING_TARGET || RING_TARGET;
+    RING_FLOOR = api.RING_FLOOR || RING_FLOOR;
+    stampRing = api.stampRing;
+    mergeParentGroups = api.mergeParentGroups;
+    normalizeParents = api.normalizeParents;
+    fanOutParents = api.fanOutParents;
+    seedYearOf = api.seedYearOf;
+    parseCollaborators = api.parseCollaborators;
+  }
 
   function escQ(s) {
     return encodeURIComponent(String(s || "").trim());
@@ -29030,187 +30020,30 @@
     return y;
   }
 
-  /**
-   * Artist-ecosystem Up Next builder (Spotify-like session continuity).
-   * mode:
-   *  - album-extend: other albums (by year/popularity shelf order) then singles; skip current album tracks
-   *  - directory: popular + discography (shuffled/taste-ranked) before Autoplay
-   * onBatch(tracks): optional progressive append callback
-   */
-  function artistEcosystem(opts) {
-    opts = opts || {};
-    var artistId = opts.artistId || "";
-    var artistName = opts.artistName || "";
-    var excludeAlbumId = String(opts.excludeAlbumId || "");
-    var excludeIds = opts.excludeIds || Object.create(null);
-    var mode = opts.mode || "directory";
-    var maxAlbums = opts.maxAlbums || (mode === "album-extend" ? 8 : 5);
-    var maxTracks = opts.maxTracks || 72;
-    var onBatch = typeof opts.onBatch === "function" ? opts.onBatch : null;
-    var entryPath = opts.entryPath || mode;
-    var rankOpts = { entryPath: entryPath, softBoost: false, seedItems: opts.seedItems || [] };
+  var artistEcosystem = function (opts) {
+    return wireArtistEcosystem()(opts);
+  };
 
-    function notExcluded(t) {
-      if (!t || !trackId(t)) return false;
-      if (excludeIds[trackId(t)]) return false;
-      if (excludeAlbumId && String(t.albumId || "") === excludeAlbumId) return false;
-      return true;
+  function wireArtistEcosystem() {
+    var api = window.SDMusicArtistEcosystem;
+    if (!api || typeof api.attach !== "function") {
+      return function () {
+        return Promise.resolve([]);
+      };
     }
-
-    function stampArtist(t, aid, aname) {
-      var o = Object.assign({}, t);
-      if (aid) {
-        o.artistId = o.artistId || aid;
-        o.artistIds = o.artistIds || [aid];
-      }
-      if (aname && (!o.artists || !o.artists.length)) o.artists = [aname];
-      o._ecosystem = mode;
-      return o;
-    }
-
-    function emitBatch(list) {
-      var cleaned = dedupeTracks((list || []).filter(notExcluded).map(function (t) {
-        return stampArtist(t, artistId, artistName);
-      }));
-      if (cleaned.length && onBatch) {
-        try {
-          onBatch(cleaned.slice());
-        } catch (e) {}
-      }
-      return cleaned;
-    }
-
-    function resolveArtistId() {
-      if (artistId) return Promise.resolve(String(artistId));
-      if (!artistName) return Promise.resolve("");
-      return fetchJson(LISTEN + "/search?q=" + escQ(artistName) + "&filter=artists&limit=8")
-        .then(function (data) {
-          var hit = ((data && data.items) || []).find(function (i) {
-            var id = (i && (i.browseId || i.channelId || i.artistId)) || "";
-            return id && String(id).indexOf("MPRE") !== 0;
-          });
-          return hit ? String(hit.browseId || hit.channelId || hit.artistId) : "";
-        })
-        .catch(function () {
-          return "";
-        });
-    }
-
-    function fetchReleaseTracks(browseId, albumTitle) {
-      return albumTracks(browseId).then(function (tracks) {
-        return (tracks || []).map(function (t) {
-          return Object.assign({}, t, {
-            albumId: t.albumId || browseId,
-            albumTitle: t.albumTitle || albumTitle || "",
-          });
-        });
-      });
-    }
-
-    return resolveArtistId().then(function (aid) {
-      artistId = aid || artistId;
-      if (!artistId && !artistName) return [];
-
-      var head = artistId
-        ? fetchJson(LISTEN + "/artist/" + escQ(artistId)).catch(function () {
-            return null;
-          })
-        : Promise.resolve(null);
-
-      return head.then(function (data) {
-        if (!data || !data.ok) {
-          return searchSimilar(artistName || "", 28).then(function (t) {
-            return tasteRank(emitBatch(t), rankOpts).slice(0, maxTracks);
-          });
-        }
-        if (data.title && !artistName) artistName = data.title;
-        var parts = classifyArtistShelves(data.shelves || []);
-        var popular = (parts.songs || []).filter(notExcluded);
-        var albums = (parts.albums || [])
-          .filter(function (a) {
-            return a && a.browseId && String(a.browseId) !== excludeAlbumId;
-          })
-          .slice();
-        // Prefer newer years first when year present; else keep YTM shelf (popularity) order.
-        var hasYear = albums.some(function (a) {
-          return releaseSortKey(a) > 1900;
-        });
-        if (hasYear) {
-          albums.sort(function (a, b) {
-            return releaseSortKey(b) - releaseSortKey(a);
-          });
-        }
-        var singles = (parts.singles || []).filter(function (a) {
-          return a && (a.browseId || a.videoId);
-        });
-
-        var acc = [];
-        if (mode === "directory") {
-          // Stay on artist: popular first (taste/shuffle-friendly), then discography.
-          acc = acc.concat(tasteRank(emitBatch(popular), rankOpts));
-        }
-
-        var releaseQueue = [];
-        if (mode === "album-extend") {
-          albums.slice(0, maxAlbums).forEach(function (a) {
-            releaseQueue.push({ browseId: a.browseId, title: a.title || "", kind: "album" });
-          });
-          singles.slice(0, Math.max(4, maxAlbums)).forEach(function (a) {
-            if (a.browseId) releaseQueue.push({ browseId: a.browseId, title: a.title || "", kind: "single" });
-            else if (a.videoId && notExcluded(a)) acc.push(stampArtist(a, artistId, artistName));
-          });
-        } else {
-          // directory: mix albums + singles after popular
-          albums.slice(0, maxAlbums).forEach(function (a) {
-            releaseQueue.push({ browseId: a.browseId, title: a.title || "", kind: "album" });
-          });
-          singles.slice(0, 6).forEach(function (a) {
-            if (a.browseId) releaseQueue.push({ browseId: a.browseId, title: a.title || "", kind: "single" });
-            else if (a.videoId && notExcluded(a)) acc.push(stampArtist(a, artistId, artistName));
-          });
-        }
-
-        if (acc.length) emitBatch(acc);
-
-        // Serial-ish album fetches (2 at a time) so first track isn't blocked and Up Next grows.
-        var i = 0;
-        function nextPair() {
-          if (acc.length >= maxTracks || i >= releaseQueue.length) {
-            return Promise.resolve(acc);
-          }
-          var batch = releaseQueue.slice(i, i + 2);
-          i += 2;
-          return Promise.all(
-            batch.map(function (rel) {
-              return fetchReleaseTracks(rel.browseId, rel.title);
-            })
-          ).then(function (groups) {
-            groups.forEach(function (tracks) {
-              var more = emitBatch(tracks);
-              if (mode === "directory") more = tasteRank(more, rankOpts);
-              acc = dedupeTracks(acc.concat(more));
-            });
-            return nextPair();
-          });
-        }
-
-        return nextPair().then(function () {
-          // If still thin, fold leftover popular (album-extend) or search.
-          if (mode === "album-extend" && popular.length) {
-            acc = dedupeTracks(acc.concat(emitBatch(popular)));
-          }
-          if (acc.length < 6 && artistName) {
-            return searchSimilar(artistName, 16).then(function (t) {
-              var more = emitBatch(t);
-              if (mode === "directory") more = tasteRank(more, rankOpts);
-              return dedupeTracks(acc.concat(more)).slice(0, maxTracks);
-            });
-          }
-          // Album-extend: preserve release order (albums → singles). Directory: predictive rank.
-          if (mode === "directory") return tasteRank(dedupeTracks(acc), rankOpts).slice(0, maxTracks);
-          return dedupeTracks(acc).slice(0, maxTracks);
-        });
-      });
+    return api.attach({
+      classifyArtistShelves: classifyArtistShelves,
+      releaseSortKey: releaseSortKey,
+      fetchJson: fetchJson,
+      albumTracks: albumTracks,
+      searchSimilar: searchSimilar,
+      tasteRank: tasteRank,
+      dedupeTracks: dedupeTracks,
+      trackId: trackId,
+      escQ: escQ,
+      LISTEN: LISTEN,
+      withTimeout: withTimeout,
+      FETCH_MS: FETCH_MS,
     });
   }
 
@@ -29305,30 +30138,35 @@
       });
   }
 
-  /** Related artists via artist search (name variants / "similar to"). */
-  function relatedArtistTracks(artistName, limit) {
-    var name = String(artistName || "").trim();
-    if (!name) return Promise.resolve([]);
-    var queries = [
-      name + " songs",
-      "artists like " + name,
-      name + " type beat",
-      name + " radio",
-    ];
-    return Promise.all(
-      queries.map(function (q) {
-        return withTimeout(searchSimilar(q, 10), FETCH_MS, []);
-      })
-    ).then(function (groups) {
-      var acc = [];
-      groups.forEach(function (g) {
-        acc = acc.concat(g || []);
-      });
-      return dedupeTracks(acc).slice(0, limit || 24);
+
+  function wireRingFetchers() {
+    bindEcosystemRings();
+    if (!ER || typeof ER.attach !== "function") return;
+    var fetchers = ER.attach({
+      withTimeout: withTimeout,
+      searchSimilar: searchSimilar,
+      albumTracks: albumTracks,
+      artistEcosystem: artistEcosystem,
+      artistRadio: artistRadio,
+      watchNext: watchNext,
+      madeForYou: madeForYou,
+      classifyArtistShelves: classifyArtistShelves,
+      releaseSortKey: releaseSortKey,
+      fetchJson: fetchJson,
+      LISTEN: LISTEN,
+      FETCH_MS: FETCH_MS,
+      escQ: escQ,
+      dedupeTracks: dedupeTracks,
     });
+    relatedArtistTracks = fetchers.relatedArtistTracks;
+    sourceRemainderTracks = fetchers.sourceRemainderTracks;
+    releaseFamilyTracks = fetchers.releaseFamilyTracks;
+    artistEraTracks = fetchers.artistEraTracks;
+    collaboratorTracks = fetchers.collaboratorTracks;
+    genreMoodTracks = fetchers.genreMoodTracks;
+    sessionTasteTracks = fetchers.sessionTasteTracks;
   }
 
-  /** Pull playable tracks from Listen home shelves (trending / charts / mixes). */
   function homeTracks(limit) {
     return fetchJson(LISTEN + "/home")
       .then(function (data) {
@@ -29416,12 +30254,14 @@
 
   /**
    * Build a refill queue for the current play context.
-   * Returns Promise<{ queue, flow, source }>
-   * Never dead-ends: most-relevant → least (album → artist → related → watch →
-   * home/trending → search → made-for-you → library → emergency ladder).
+   * Returns Promise<{ queue, flow, source, rings }>
+   * 10-ring ecosystem ladder (outward only): now → source remainder → release family →
+   * artist-era → artist catalog → collaborators → related → genre/mood → taste → global.
+   * Soft-cap each ring before widening; ring 10 never dead-ends.
    * Each step times out so a hung Listen call cannot strand Autoplay on "Preparing…".
    */
   function refill(ctx) {
+    wireRingFetchers();
     ctx = ctx || {};
     var state = ctx.state || {};
     var source = ctx.source || state.source || "listen";
@@ -29432,6 +30272,8 @@
       title: state.title,
       subtitle: state.subtitle,
       artists: state.subtitle ? [state.subtitle] : [],
+      year: state.year,
+      albumTitle: state.albumTitle,
     };
     var existing = dedupeTracks(ctx.queue || state.queue || []);
     var onBatch = typeof ctx.onBatch === "function" ? ctx.onBatch : null;
@@ -29462,11 +30304,18 @@
         });
         queue = head.concat(rest);
       }
-      lastFlow = { flow: flow, at: Date.now(), source: source, n: queue.length, steps: flowSteps.slice() };
+      lastFlow = {
+        flow: flow,
+        at: Date.now(),
+        source: source,
+        n: queue.length,
+        steps: flowSteps.slice(),
+        rings: flowSteps.slice(),
+      };
       try {
         window.__sdMusicSmartQueueLast = lastFlow;
       } catch (e) {}
-      return { queue: queue, flow: flow, source: source };
+      return { queue: queue, flow: flow, source: source, rings: flowSteps.slice() };
     }
 
     function emitProgress(acc) {
@@ -29485,16 +30334,6 @@
       } catch (e) {}
     }
 
-    function step(name, acc, need, runner) {
-      if (acc.length >= need) return Promise.resolve(acc);
-      flowSteps.push(name);
-      return withTimeout(Promise.resolve().then(runner), FETCH_MS, []).then(function (tracks) {
-        var next = dedupeTracks(acc.concat(tracks || []));
-        emitProgress(next);
-        return next;
-      });
-    }
-
     if (source === "radio") {
       var radioGen = ++inflightGen;
       inflightStartedAt = Date.now();
@@ -29510,69 +30349,169 @@
     var artistName =
       (current.artists && current.artists[0]) || current.subtitle || state.subtitle || "";
     var artistId = current.artistId || state.artistId || "";
-    var albumId = current.albumId || state.albumId || "";
+    var albumId =
+      current.albumId ||
+      state.albumId ||
+      (ctx.sourceMeta && ctx.sourceMeta.albumId) ||
+      "";
+    var albumTitle =
+      current.albumTitle || state.albumTitle || (ctx.sourceMeta && ctx.sourceMeta.title) || "";
     var vid = current.videoId || (state.source === "listen" ? state.id : "") || "";
+    var year = seedYearOf(current, state);
+    var target = ctx.target || RING_TARGET;
+    var floor = ctx.floor || RING_FLOOR;
+    var parents = normalizeParents(ctx.parents, artistId, artistName);
+    var multiParent = !!(ctx.multiParent && parents.length > 1);
 
-    // Listen / library / home / search flows — most relevant → least
+    function runRing(ring, acc) {
+      // Ring 1 = parent context only — never fan out.
+      if (ring.id === 1) {
+        flowSteps.push(ring.label);
+        return Promise.resolve(acc);
+      }
+      // Outward only: soft-cap earlier rings then widen until target; ring 10 always if below floor.
+      if (ring.id < 10 && acc.length >= target) return Promise.resolve(acc);
+      if (ring.id === 10 && acc.length >= floor && acc.length >= target) {
+        return Promise.resolve(acc);
+      }
+      flowSteps.push(multiParent && ring.id >= 4 && ring.id <= 9 ? ring.label + "*parents" : ring.label);
+      var runner;
+      if (ring.id === 2) {
+        runner = function () {
+          // Mixed source: remainder of playlist/likes; single album still album tracks.
+          return sourceRemainderTracks(ctx, multiParent ? "" : albumId);
+        };
+      } else if (ring.id === 3) {
+        runner = function () {
+          // No single release family on mixed playlists/likes — soft-skip.
+          if (multiParent) return [];
+          return releaseFamilyTracks(current, albumTitle, artistName, albumId, ring.softCap + 4);
+        };
+      } else if (ring.id === 4) {
+        runner = function () {
+          if (multiParent) {
+            return fanOutParents(parents, 4, function (p) {
+              return artistEraTracks(p.artistId, p.artistName, p.year || year, "", 6);
+            });
+          }
+          return artistEraTracks(artistId, artistName, year, albumId, ring.softCap + 4);
+        };
+      } else if (ring.id === 5) {
+        runner = function () {
+          if (multiParent) {
+            return fanOutParents(parents, 5, function (p) {
+              if (!p.artistId && !p.artistName) return [];
+              return artistRadio(p.artistId, p.artistName);
+            });
+          }
+          if (!artistId && !artistName) return [];
+          return artistRadio(artistId, artistName);
+        };
+      } else if (ring.id === 6) {
+        runner = function () {
+          if (multiParent) {
+            // Collaborators across parents: features on source tracks + per-parent guests.
+            var fromSource = [];
+            ((ctx.sourceOrder || ctx.sourceRemainder || []) || []).slice(0, 40).forEach(function (t) {
+              parseCollaborators(t).forEach(function (n) {
+                if (fromSource.indexOf(n) < 0) fromSource.push(n);
+              });
+            });
+            var collabParents = fromSource.slice(0, 6).map(function (n) {
+              return { artistId: "", artistName: n, weight: 1 };
+            });
+            if (!collabParents.length) {
+              return fanOutParents(parents.slice(0, 4), 3, function (p) {
+                return searchSimilar((p.artistName || "") + " feat", 6);
+              });
+            }
+            return fanOutParents(collabParents, 3, function (p) {
+              return searchSimilar((p.artistName || "") + " songs", 8);
+            });
+          }
+          return collaboratorTracks(current, ring.softCap + 4);
+        };
+      } else if (ring.id === 7) {
+        runner = function () {
+          if (multiParent) {
+            return fanOutParents(parents, 4, function (p) {
+              return relatedArtistTracks(p.artistName, 10, true);
+            });
+          }
+          return relatedArtistTracks(artistName, 20, true);
+        };
+      } else if (ring.id === 8) {
+        runner = function () {
+          if (multiParent) {
+            var genreQs = [];
+            parents.forEach(function (p) {
+              (p.genres || []).forEach(function (g) {
+                if (g && genreQs.indexOf(g) < 0) genreQs.push(g);
+              });
+            });
+            var head = vid ? watchNext(vid, 12) : Promise.resolve([]);
+            return head.then(function (watch) {
+              return fanOutParents(
+                (genreQs.length ? genreQs : parents.map(function (p) { return p.artistName; }))
+                  .slice(0, 4)
+                  .map(function (g) {
+                    return { artistName: String(g), artistId: "", weight: 1 };
+                  }),
+                4,
+                function (p) {
+                  var q = /hits|songs/i.test(p.artistName)
+                    ? p.artistName
+                    : p.artistName + (genreQs.length ? " hits" : " type beat");
+                  return searchSimilar(q, 8);
+                }
+              ).then(function (more) {
+                return dedupeTracks((watch || []).concat(more || []));
+              });
+            });
+          }
+          return genreMoodTracks(current, vid, ring.softCap + 6);
+        };
+      } else if (ring.id === 9) {
+        runner = function () {
+          // Session taste already global; seed with all parents for co-occurrence ranking later.
+          return sessionTasteTracks(ring.softCap + 6);
+        };
+      } else {
+        // Ring 10 — charts / trending / emergency anything-playable
+        runner = function () {
+          return homeTracks(28).then(function (home) {
+            var acc10 = home || [];
+            if (acc10.length >= floor) return acc10;
+            return emergencyPlayable(current, 20).then(function (em) {
+              return dedupeTracks(acc10.concat(em || []));
+            });
+          });
+        };
+      }
+      return withTimeout(Promise.resolve().then(runner), FETCH_MS, []).then(function (tracks) {
+        var stamped = stampRing(tracks || [], ring.id, ring.label).slice(0, ring.softCap || 24);
+        var next = dedupeTracks(acc.concat(stamped));
+        emitProgress(next);
+        return next;
+      });
+    }
+
+    // Walk rings 1 → 10 outward only (never skip inward).
     var chain = Promise.resolve([]);
-
-    chain = chain.then(function (acc) {
-      return step("album", acc, 8, function () {
-        return albumId ? albumTracks(albumId) : [];
+    ECOSYSTEM_RINGS.forEach(function (ring) {
+      chain = chain.then(function (acc) {
+        return runRing(ring, acc);
       });
     });
 
+    // Absolute floor if somehow still empty after ring 10
     chain = chain.then(function (acc) {
-      return step("artist-radio", acc, 12, function () {
-        if (!artistId && !artistName) return [];
-        return artistRadio(artistId, artistName);
-      });
-    });
-
-    chain = chain.then(function (acc) {
-      return step("related-artists", acc, 16, function () {
-        return relatedArtistTracks(artistName, 20);
-      });
-    });
-
-    chain = chain.then(function (acc) {
-      return step("watch-next", acc, 18, function () {
-        return vid ? watchNext(vid, 25) : [];
-      });
-    });
-
-    chain = chain.then(function (acc) {
-      return step("home-trending", acc, 20, function () {
-        return homeTracks(28);
-      });
-    });
-
-    chain = chain.then(function (acc) {
-      return step("made-for-you", acc, 22, function () {
-        return madeForYou(20);
-      });
-    });
-
-    chain = chain.then(function (acc) {
-      return step("search-similar", acc, 12, function () {
-        var q = [current.title || state.title, artistName].filter(Boolean).join(" ");
-        return q ? searchSimilar(q, 12) : [];
-      });
-    });
-
-    chain = chain.then(function (acc) {
-      return step("library-liked", acc, 6, function () {
-        try {
-          if (window.SDMusicLibrary) return window.SDMusicLibrary.snapshot().liked || [];
-        } catch (e) {}
-        return [];
-      });
-    });
-
-    // Absolute floor: keep searching until something playable lands
-    chain = chain.then(function (acc) {
-      return step("emergency-ladder", acc, 4, function () {
-        return emergencyPlayable(current, 20);
+      if (acc.length >= floor) return acc;
+      flowSteps.push("emergency-ladder");
+      return withTimeout(emergencyPlayable(current, 20), FETCH_MS, []).then(function (tracks) {
+        var next = dedupeTracks(acc.concat(stampRing(tracks || [], 10, "global")));
+        emitProgress(next);
+        return next;
       });
     });
 
@@ -29582,8 +30521,36 @@
       chain.then(function (acc) {
         var ranked = tasteRank(dedupeTracks(acc), {
           entryPath: ctx.entryPath || state.entryPath || source || "listen",
-          seedItems: current ? [current] : [],
+          seedItems: (function () {
+            var seeds = current ? [current] : [];
+            parents.forEach(function (p) {
+              seeds.push({
+                videoId: "parent-seed-" + (p.artistId || p.artistName),
+                artists: [p.artistName],
+                artist: p.artistName,
+                title: p.artistName,
+              });
+            });
+            return seeds;
+          })(),
         });
+        // Preserve ring stamps through taste rank when possible
+        try {
+          var byId = Object.create(null);
+          (acc || []).forEach(function (t) {
+            var id = trackId(t);
+            if (id && t && t._ring != null) byId[id] = t;
+          });
+          ranked = (ranked || []).map(function (t) {
+            var id = trackId(t);
+            var prev = id && byId[id];
+            if (!prev) return t;
+            if (t._ring == null && prev._ring != null) {
+              return Object.assign({}, t, { _ring: prev._ring, _ringSource: prev._ringSource });
+            }
+            return t;
+          });
+        } catch (eRank) {}
         emitProgress(ranked);
         var flow = flowSteps.join(">") || "empty";
         return finish(ranked, flow);
@@ -29592,8 +30559,9 @@
       function () {
         flowSteps.push("refill-timeout");
         return withTimeout(emergencyPlayable(current, 16), FETCH_MS, []).then(function (tracks) {
-          emitProgress(tracks);
-          return finish(tracks, flowSteps.join(">") || "refill-timeout");
+          var stamped = stampRing(tracks || [], 10, "global");
+          emitProgress(stamped);
+          return finish(stamped, flowSteps.join(">") || "refill-timeout");
         });
       }
     ).finally(function () {
@@ -29803,9 +30771,15 @@
     buildOnPlay: buildOnPlay,
     wrapListenHandlers: wrapListenHandlers,
     artistEcosystem: artistEcosystem,
+    artistRadio: artistRadio,
     madeForYou: madeForYou,
     homeTracks: homeTracks,
     emergencyPlayable: emergencyPlayable,
+    rings: ECOSYSTEM_RINGS,
+    stampRing: function () { wireRingFetchers(); return stampRing.apply(null, arguments); },
+    parseCollaborators: function () { wireRingFetchers(); return parseCollaborators.apply(null, arguments); },
+    mergeParentGroups: function () { wireRingFetchers(); return mergeParentGroups.apply(null, arguments); },
+    normalizeParents: function () { wireRingFetchers(); return normalizeParents.apply(null, arguments); },
     last: function () {
       return lastFlow;
     },
