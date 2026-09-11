@@ -480,11 +480,31 @@
     }
 
     function playTracks(tracks, startId, surface, meta) {
-      var seeds = (tracks || []).filter(function (t) {
-        return t && t.videoId;
-      });
+      // Normalize id→videoId so Liked/library rows without videoId still play.
+      var Lib = window.SDMusicLibrary;
+      var seeds = (tracks || [])
+        .map(function (t) {
+          if (!t) return null;
+          if (Lib && typeof Lib.asPlayableTrack === "function") {
+            return Lib.asPlayableTrack(t) || (t.videoId || t.id ? Object.assign({}, t, { videoId: t.videoId || t.id }) : null);
+          }
+          var vid = t.videoId || (t.source === "listen" || t.kind === "song" || t.kind === "track" ? t.id : "") || "";
+          if (!vid) return null;
+          return Object.assign({}, t, { videoId: String(vid) });
+        })
+        .filter(function (t) {
+          return t && t.videoId;
+        });
       if (!seeds.length) return;
       meta = meta || {};
+      var startVid = String(startId || "");
+      if (startVid && !seeds.some(function (t) { return String(t.videoId) === startVid; })) {
+        // startId may be bare id from a non-normalized row — map via seeds[0] when matching id.
+        var byId = seeds.find(function (t) {
+          return String(t.id || "") === startVid || String(t.videoId) === startVid;
+        });
+        if (byId) startVid = String(byId.videoId);
+      }
       var srcMeta = {
         type: surface || meta.type || "listen",
         id: meta.albumId || meta.artistId || meta.playlistId || meta.id || "",
@@ -501,6 +521,11 @@
         entryPath: meta.entryPath || surface || "listen",
         surface: surface,
       };
+      if (surface === "library" || surface === "liked" || (meta && meta.type === "liked")) {
+        srcMeta.type = srcMeta.type === "listen" ? "liked" : srcMeta.type;
+        if (!srcMeta.title) srcMeta.title = "Liked songs";
+        srcMeta.entryPath = meta.entryPath || "library";
+      }
       if (surface === "album" && !srcMeta.id) {
         srcMeta.id = (seeds[0] && seeds[0].albumId) || "";
         srcMeta.title = (seeds[0] && seeds[0].albumTitle) || srcMeta.title;
@@ -512,11 +537,28 @@
       }
       var u = UQ();
       if (u) {
-        u.startFromSource(seeds, startId || (seeds[0] && seeds[0].videoId), srcMeta, {
-          playMode: playMode(),
-          clearManual: true,
-          extendArtistEcosystem: true,
-        });
+        try {
+          u.startFromSource(seeds, startVid || (seeds[0] && seeds[0].videoId), srcMeta, {
+            playMode: playMode(),
+            clearManual: true,
+            extendArtistEcosystem: true,
+          });
+        } catch (eStart) {
+          try {
+            console.error("[Listen] startFromSource failed", eStart);
+          } catch (eLog) {}
+          // Fall through to legacy flat queue so a UQ/rings throw never silent-no-ops Liked taps.
+          queue = seeds;
+          var fi = 0;
+          if (startVid) {
+            var fidx = queue.findIndex(function (t) {
+              return String(t.videoId) === startVid;
+            });
+            if (fidx >= 0) fi = fidx;
+          }
+          playIndex(fi);
+          return;
+        }
         syncFlatFromUnified();
         var now = u.getTimeline().now;
         if (now) playTrackObject(now);
@@ -524,9 +566,9 @@
       }
       queue = seeds;
       let idx = 0;
-      if (startId) {
+      if (startVid) {
         const found = queue.findIndex(function (t) {
-          return t.videoId === startId;
+          return t.videoId === startVid;
         });
         if (found >= 0) idx = found;
       }
@@ -940,7 +982,11 @@
           btn.addEventListener("click", function (e) {
             if (e.target.closest("[data-ml-add], [data-ml-more]")) return;
             if (item.kind === "lib-liked" && item.tracks) {
-              playTracks(item.tracks, item.tracks[0] && item.tracks[0].videoId, "library");
+              playTracks(item.tracks, item.tracks[0] && (item.tracks[0].videoId || item.tracks[0].id), "liked", {
+                type: "liked",
+                title: "Liked songs",
+                entryPath: "library",
+              });
               return;
             }
             if (item.kind === "lib-playlist" && item.playlist) {
@@ -1833,7 +1879,11 @@
         var Lib = window.SDMusicLibrary;
         var liked = Lib && Lib.snapshot ? (Lib.snapshot().liked || []).slice() : [];
         if (liked.length) {
-          playTracks(liked, liked[0] && liked[0].videoId, "library");
+          playTracks(liked, liked[0] && (liked[0].videoId || liked[0].id), "liked", {
+            type: "liked",
+            title: "Liked songs",
+            entryPath: "library",
+          });
           stack = [{ view: "library", title: "Library" }];
           return render();
         }

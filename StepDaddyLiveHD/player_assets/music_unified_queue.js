@@ -444,10 +444,14 @@
     } catch (e) {}
     // Single-tree: prefetch artist ecosystem. Multi-parent: union prefetch (all parents).
     if (opts.extendArtistEcosystem !== false) {
-      if (session.multiParent) scheduleMultiParentEcosystem(session.parents, seeds);
-      else scheduleArtistEcosystem(session.source, seeds);
+      try {
+        if (session.multiParent) scheduleMultiParentEcosystem(session.parents, seeds);
+        else scheduleArtistEcosystem(session.source, seeds);
+      } catch (eEco) {}
     }
-    prepareAutoplay();
+    try {
+      prepareAutoplay();
+    } catch (ePrep) {}
     return session.now;
   }
 

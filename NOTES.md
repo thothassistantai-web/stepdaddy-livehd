@@ -1,3 +1,10 @@
+## Music Liked play + SOCKS restore 20260911l
+- Symptom on **k**: Liked songs / Listen taps appeared to do nothing; Radio still worked.
+- Root cause: home `pproxy` + `ssh -R :11080` reverse tunnel was **down** → VPS `VOD_SOCKS5` inactive → yt-dlp hit Oracle IP → YouTube bot gate (`Sign in to confirm you’re not a bot`) → `/stream/{id}` **502**. Cached rickroll still 200 (masked the outage).
+- k ring-steer JS path still started UQ sessions in headless smoke (no ReferenceError); not the primary blocker.
+- Fix: restore `pproxy` + `ssh -R 127.0.0.1:11080`; harden `playTracks` to normalize `id→videoId` via `asPlayableTrack`, try/catch `startFromSource` so rings throws never silent-no-op; guard ecosystem/prepare in UQ; unify template VERSION to **l**.
+- Smoke: FrsOnNxIrg8 / H4RELGc9su8 / NQbkGDoD7B0 stream **200** after tunnel; report `/tmp/music-liked-play-broken.json`.
+
 ## Music likes → taste learning 20260911j
 - Field: library `likeTrack` saved likes but never called `SDMusicTaste.recordLike`, so hearts/library likes did not move Smart Shuffle / Home soft-boost / Autoplay ranking.
 - Fix: `likeTrack` bridges into `recordLike`; `recordLike` idempotently bumps artist/genre weights (likes alone teach related soft-rank).
