@@ -26537,6 +26537,7 @@
     if (!norm) return;
     var meta = readFavMeta();
     var id = String(norm.id);
+    var already = readFavIds().indexOf(id) >= 0;
     if (liked) {
       meta[id] = norm;
       var keys = Object.keys(meta);
@@ -26556,6 +26557,24 @@
         if (favs.indexOf(id) < 0) favs.unshift(id);
         localStorage.setItem(LS_FAV, JSON.stringify(favs.slice(0, MAX_LIKES)));
       } catch (e) {}
+      // Likes alone must teach artist/genre soft-ranking (Home / Smart Shuffle / Autoplay).
+      // Idempotent: skip weight bumps if this id was already liked (UI heart + library bridge).
+      if (!already) {
+        try {
+          var data = read();
+          artistTokens(norm).forEach(function (tok) {
+            bump(data.artists, tok, 2.2);
+          });
+          if (norm.genre) bump(data.genres, String(norm.genre).toLowerCase(), 1.8);
+          if (norm.year) bump(data.years, norm.year, 0.8);
+          if (norm.entryPath) bump(data.entryPaths, norm.entryPath, 0.6);
+          data.artists = trimMap(data.artists, 80);
+          data.genres = trimMap(data.genres, 80);
+          data.years = trimMap(data.years, 40);
+          data.entryPaths = trimMap(data.entryPaths, MAX_ENTRY);
+          write(data);
+        } catch (e2) {}
+      }
     } else {
       delete meta[id];
       try {
@@ -26564,6 +26583,20 @@
         });
         localStorage.setItem(LS_FAV, JSON.stringify(favs2));
       } catch (e) {}
+      if (already) {
+        try {
+          var data2 = read();
+          artistTokens(norm).forEach(function (tok) {
+            if (data2.artists && data2.artists[tok]) {
+              data2.artists[tok].w = Math.max(0, (data2.artists[tok].w || 0) - 2.2);
+              if ((data2.artists[tok].w || 0) <= 0 && (data2.artists[tok].n || 0) <= 1) {
+                delete data2.artists[tok];
+              }
+            }
+          });
+          write(data2);
+        } catch (e3) {}
+      }
     }
     writeFavMeta(meta);
   }
@@ -27587,6 +27620,29 @@
         return x.videoId;
       }, MAX_LIKED);
     }
+    // Feed SDMusicTaste so likes affect Smart Shuffle / Home soft-boost / Autoplay.
+    try {
+      var T = window.SDMusicTaste;
+      if (T && typeof T.recordLike === "function") {
+        T.recordLike(
+          {
+            id: t.videoId,
+            videoId: t.videoId,
+            title: t.title,
+            artist: (t.artists && t.artists[0]) || t.subtitle || "",
+            subtitle: t.subtitle || (t.artists && t.artists.join(", ")) || "",
+            artwork: t.thumb,
+            genre: track && track.genre ? track.genre : "",
+            kind: "song",
+            source: "listen",
+            entryPath: (track && (track.entryPath || track.surface)) || "library",
+            albumId: t.albumId,
+            artistId: t.artistId,
+          },
+          liked !== false
+        );
+      }
+    } catch (e) {}
     return persist(st);
   }
 

@@ -572,6 +572,29 @@
         return x.videoId;
       }, MAX_LIKED);
     }
+    // Feed SDMusicTaste so likes affect Smart Shuffle / Home soft-boost / Autoplay.
+    try {
+      var T = window.SDMusicTaste;
+      if (T && typeof T.recordLike === "function") {
+        T.recordLike(
+          {
+            id: t.videoId,
+            videoId: t.videoId,
+            title: t.title,
+            artist: (t.artists && t.artists[0]) || t.subtitle || "",
+            subtitle: t.subtitle || (t.artists && t.artists.join(", ")) || "",
+            artwork: t.thumb,
+            genre: track && track.genre ? track.genre : "",
+            kind: "song",
+            source: "listen",
+            entryPath: (track && (track.entryPath || track.surface)) || "library",
+            albumId: t.albumId,
+            artistId: t.artistId,
+          },
+          liked !== false
+        );
+      }
+    } catch (e) {}
     return persist(st);
   }
 

@@ -1,3 +1,8 @@
+## Music likes → taste learning 20260911j
+- Field: library `likeTrack` saved likes but never called `SDMusicTaste.recordLike`, so hearts/library likes did not move Smart Shuffle / Home soft-boost / Autoplay ranking.
+- Fix: `likeTrack` bridges into `recordLike`; `recordLike` idempotently bumps artist/genre weights (likes alone teach related soft-rank).
+- Field report: `/tmp/music-like-hiphop-field.json`
+
 ## Listen player restore after h regression 20260911i
 - **h regressed Listen:** splitting UQ ecosystem into `music_uq_ecosystem.js` / rings dropped module state (`var session`, `listeners`, `persistTimer`, autoplay/ecosystem inflight, `AUTOPLAY_PREP_MS`) from `music_unified_queue.js`.
 - Symptom: Radio OK; Listen taps call `startFromSource` → `emit()` → `ReferenceError: listeners is not defined` — player UI never syncs.
