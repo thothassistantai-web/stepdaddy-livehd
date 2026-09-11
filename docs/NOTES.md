@@ -1,3 +1,10 @@
+## Music Autoplay endless fallback 20260911g
+- Field: S21 stuck on Autoplay **Preparing suggestions…** after Up Next source finished (live was 20260911f).
+- Root cause: shared `SQ.refill` inflight + `fetchJson` with no timeout → hung Listen call dead-ended prepare forever; waiting path did not retry when Autoplay stayed empty.
+- Fix: 10s fetch / 12s refill / 11s prepare timeouts; progressive `onBatch`; endless ladder album→artist→related→watch→home→made-for-you→search→library→emergency; waiting retry loop; stream prewarm abort; continuous refill while playing.
+- SOCKS `:11080` / `VOD_SOCKS5` was healthy (`proxy.active=true`) — not the blocker.
+- Deployed `20260911g`; S21 CDP: prepare ~1.1s → 40 tracks; 8 advances no wait; empty recover ~1s → 39 tracks. Report `/tmp/music-autoplay-field.json`.
+
 ## Music Smart Shuffle field + cold-start 20260911f
 - Field-tested Smart Shuffle vs Off vs plain Shuffle; was near no-op on empty taste (rank ≈ input order).
 - Cold-start defaults in `SDMusicTaste.rankItems`: same-artist/genre/era as seed, soft popularity, avoid immediate repeats, light time-of-day, rank noise (Smart ≠ Off).

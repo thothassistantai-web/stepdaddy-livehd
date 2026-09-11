@@ -98,8 +98,11 @@
   var session = emptySession();
   var persistTimer = null;
   var autoplayInflight = null;
+  var autoplayInflightAt = 0;
+  var autoplayPrepGen = 0;
   var ecosystemInflight = null;
   var listeners = [];
+  var AUTOPLAY_PREP_MS = 11000;
 
   function emit() {
     var snap = getTimeline();
@@ -660,48 +663,136 @@
     return advanceNext({ fromEnded: true });
   }
 
-  function prepareAutoplay() {
+  function prepareAutoplay(opts) {
+    opts = opts || {};
     if (!session.autoplayEnabled) return Promise.resolve([]);
-    if (session.autoplay.length >= 8) return Promise.resolve(session.autoplay);
-    if (autoplayInflight) return autoplayInflight;
+    if (!opts.force && session.autoplay.length >= 8) return Promise.resolve(session.autoplay);
+
+    // Recover from a hung prepare so Autoplay never sits on "Preparing…" forever.
+    if (autoplayInflight && !opts.force) {
+      if (autoplayInflightAt && Date.now() - autoplayInflightAt < AUTOPLAY_PREP_MS) {
+        return autoplayInflight;
+      }
+      autoplayInflight = null;
+      autoplayInflightAt = 0;
+    }
 
     var SQ = window.SDMusicSmartQueue;
     if (!SQ || typeof SQ.refill !== "function") {
-      // Fallback: made-for-you
       var local = [];
       try {
         if (SQ && typeof SQ.madeForYou === "function") local = SQ.madeForYou(16) || [];
       } catch (e) {}
       appendAutoplay(local);
+      if (!session.autoplay.length && SQ && typeof SQ.emergencyPlayable === "function") {
+        return SQ.emergencyPlayable(session.now, 16).then(function (tracks) {
+          appendAutoplay(tracks);
+          return session.autoplay;
+        });
+      }
       return Promise.resolve(session.autoplay);
     }
 
     var seed = session.now || (session.history.length && session.history[session.history.length - 1]) || null;
-    autoplayInflight = SQ.refill({
-      state: {
+    var myGen = ++autoplayPrepGen;
+    autoplayInflightAt = Date.now();
+
+    function timed(promise, ms, fallback) {
+      return new Promise(function (resolve) {
+        var settled = false;
+        function done(v) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(v);
+        }
+        var timer = setTimeout(function () {
+          try {
+            var fb = typeof fallback === "function" ? fallback() : fallback;
+            Promise.resolve(fb).then(done, function () {
+              done([]);
+            });
+          } catch (e) {
+            done([]);
+          }
+        }, ms);
+        Promise.resolve(promise).then(done, function () {
+          try {
+            var fb2 = typeof fallback === "function" ? fallback() : fallback;
+            Promise.resolve(fb2).then(done, function () {
+              done([]);
+            });
+          } catch (e2) {
+            done([]);
+          }
+        });
+      });
+    }
+
+    autoplayInflight = timed(
+      SQ.refill({
+        force: !!opts.force,
+        state: {
+          source: "listen",
+          id: seed && trackId(seed),
+          albumId:
+            (seed && seed.albumId) ||
+            (session.source && session.source.albumId) ||
+            (session.source && session.source.type === "album" && session.source.id) ||
+            "",
+          artistId: (seed && seed.artistId) || (session.source && session.source.artistId) || "",
+          title: seed && seed.title,
+          subtitle: (seed && ((seed.artists && seed.artists.join(", ")) || seed.subtitle)) || "",
+          entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
+        },
+        queue: [],
+        track: seed,
         source: "listen",
-        id: seed && trackId(seed),
-        albumId: (seed && seed.albumId) || (session.source && session.source.albumId) || (session.source && session.source.type === "album" && session.source.id) || "",
-        artistId: (seed && seed.artistId) || (session.source && session.source.artistId) || "",
-        title: seed && seed.title,
-        subtitle: (seed && ((seed.artists && seed.artists.join(", ")) || seed.subtitle)) || "",
         entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
-      },
-      queue: [],
-      track: seed,
-      source: "listen",
-      entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
-    })
-      .then(function (res) {
+        onBatch: function (batch) {
+          // Progressive fill — UI leaves "Preparing…" as soon as first candidates land.
+          appendAutoplay(batch);
+        },
+      }).then(function (res) {
         var q = (res && res.queue) || [];
         appendAutoplay(q);
+        return session.autoplay;
+      }),
+      AUTOPLAY_PREP_MS,
+      function () {
+        // Timeout path: force a fresh emergency ladder; never leave Autoplay empty.
+        if (typeof SQ.emergencyPlayable === "function") {
+          return SQ.emergencyPlayable(seed, 20).then(function (tracks) {
+            appendAutoplay(tracks);
+            if (!session.autoplay.length && typeof SQ.homeTracks === "function") {
+              return SQ.homeTracks(24).then(function (home) {
+                appendAutoplay(home);
+                return session.autoplay;
+              });
+            }
+            return session.autoplay;
+          });
+        }
+        return session.autoplay;
+      }
+    )
+      .then(function (list) {
+        if ((!list || !list.length) && typeof SQ.emergencyPlayable === "function") {
+          return SQ.emergencyPlayable(seed, 20).then(function (tracks) {
+            appendAutoplay(tracks);
+            return session.autoplay;
+          });
+        }
         return session.autoplay;
       })
       .catch(function () {
         return session.autoplay;
       })
       .finally(function () {
-        autoplayInflight = null;
+        if (autoplayPrepGen === myGen) {
+          autoplayInflight = null;
+          autoplayInflightAt = 0;
+        }
       });
     return autoplayInflight;
   }

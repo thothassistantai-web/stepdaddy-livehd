@@ -186,13 +186,26 @@
         if (cached) return Promise.resolve(cached);
       }
       if (streamInflight[videoId]) return streamInflight[videoId];
-      streamInflight[videoId] = api("/stream/" + encodeURIComponent(videoId))
+      var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      var abortTimer = setTimeout(function () {
+        try {
+          if (ctrl) ctrl.abort();
+        } catch (eAb) {}
+      }, opts.timeoutMs || 12000);
+      var fetchOpts = { credentials: "same-origin" };
+      if (ctrl) fetchOpts.signal = ctrl.signal;
+      streamInflight[videoId] = fetch(API + "/stream/" + encodeURIComponent(videoId), fetchOpts)
+        .then(function (r) {
+          if (!r.ok) throw new Error("listen_api_" + r.status);
+          return r.json();
+        })
         .then(function (data) {
           if (!data || !data.stream_url) throw new Error("no_stream");
           cachePut(videoId, data);
           return data;
         })
         .finally(function () {
+          clearTimeout(abortTimer);
           delete streamInflight[videoId];
         });
       return streamInflight[videoId];
@@ -207,7 +220,8 @@
         if (typeof u.prepareAutoplay === "function") {
           var sess = typeof u.getSession === "function" ? u.getSession() : null;
           var upLen = (sess && sess.upNext && sess.upNext.length) || 0;
-          if (upLen <= 2) u.prepareAutoplay();
+          var apLen = (sess && sess.autoplay && sess.autoplay.length) || 0;
+          if (upLen <= 2 || apLen < 6) u.prepareAutoplay();
         }
       } catch (ePrep) {}
       var ids = [];
@@ -225,7 +239,8 @@
       }
       ids.forEach(function (id) {
         if (cacheGet(id) || streamInflight[id]) return;
-        fetchStream(id).catch(function () {});
+        // Prewarm must never block current/next ready playback.
+        fetchStream(id, { timeoutMs: 10000 }).catch(function () {});
       });
     }
 
@@ -233,7 +248,8 @@
       var u = UQ();
       // dir: -1 prev, 1 next, 0 ended
       if (u && (dir === 1 || dir === 0)) {
-        function playResolved(res) {
+        function playResolved(res, depth) {
+          depth = depth || 0;
           if (!res) return;
           if (res.ended) {
             try {
@@ -248,9 +264,28 @@
             return;
           }
           if (res.waiting) {
+            // Never sit on Preparing forever: retry prepare with timeout, then advance.
+            if (depth > 6) {
+              try {
+                u.prepareAutoplay({ force: true }).then(function () {
+                  var last = u.advanceNext({ fromEnded: dir === 0 });
+                  if (last && last.track) playTrackObject(last.track);
+                });
+              } catch (eForce) {}
+              return;
+            }
             var waiters = [];
             try {
-              if (typeof u.prepareAutoplay === "function") waiters.push(u.prepareAutoplay());
+              if (typeof u.prepareAutoplay === "function") {
+                waiters.push(
+                  Promise.race([
+                    u.prepareAutoplay(depth > 2 ? { force: true } : {}),
+                    new Promise(function (resolve) {
+                      setTimeout(resolve, 10000);
+                    }),
+                  ])
+                );
+              }
             } catch (e) {}
             try {
               var sess = typeof u.getSession === "function" ? u.getSession() : null;
@@ -261,7 +296,7 @@
                     var timer = setInterval(function () {
                       n += 1;
                       var s = u.getSession();
-                      if (!s || !s.ecosystemPending || (s.upNext && s.upNext.length) || n > 48) {
+                      if (!s || !s.ecosystemPending || (s.upNext && s.upNext.length) || n > 40) {
                         clearInterval(timer);
                         resolve();
                       }
@@ -273,7 +308,8 @@
             Promise.all(waiters.length ? waiters : [Promise.resolve()]).then(function () {
               var again = u.advanceNext({ fromEnded: dir === 0 });
               if (again && again.track) playTrackObject(again.track);
-              else if (again && again.ended) playResolved(again);
+              else if (again && again.ended) playResolved(again, depth + 1);
+              else if (again && again.waiting) playResolved(again, depth + 1);
             });
             return;
           }
@@ -395,10 +431,21 @@
             P._instance.audio.currentTime = 0;
           } catch (eR) {}
         }
-        // Keep warming while current track plays
+        // Keep warming while current track plays — continuous Autoplay refill
         setTimeout(function () {
           prewarmUpcoming(2);
         }, 1200);
+        setTimeout(function () {
+          try {
+            if (u && typeof u.prepareAutoplay === "function") u.prepareAutoplay();
+          } catch (eTop) {}
+          prewarmUpcoming(2);
+        }, 5000);
+        setTimeout(function () {
+          try {
+            if (u && typeof u.prepareAutoplay === "function") u.prepareAutoplay();
+          } catch (eTop2) {}
+        }, 15000);
         syncFlatFromUnified();
       } catch (e) {
         try {
@@ -419,9 +466,10 @@
             var skipped = UQ().skipUnavailable();
             if (skipped && skipped.track) playTrackObject(skipped.track);
             else if (skipped && skipped.waiting) {
-              UQ().prepareAutoplay().then(function () {
+              UQ().prepareAutoplay({ force: true }).then(function () {
                 var again = UQ().advanceNext({ fromEnded: true });
                 if (again && again.track) playTrackObject(again.track);
+                else if (again && again.waiting) smartNav(1);
               });
             }
           } else {

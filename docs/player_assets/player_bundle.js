@@ -24944,7 +24944,7 @@
           });
         });
       } else {
-        html += "<li><small>Preparing suggestions…</small></li>";
+        html += "<li><small>Finding more…</small></li>";
       }
       html += "</ul></section>";
     } else if (this.state.source === "listen" && this.state.queue && this.state.queue.length) {
@@ -28087,8 +28087,11 @@
   var session = emptySession();
   var persistTimer = null;
   var autoplayInflight = null;
+  var autoplayInflightAt = 0;
+  var autoplayPrepGen = 0;
   var ecosystemInflight = null;
   var listeners = [];
+  var AUTOPLAY_PREP_MS = 11000;
 
   function emit() {
     var snap = getTimeline();
@@ -28649,48 +28652,136 @@
     return advanceNext({ fromEnded: true });
   }
 
-  function prepareAutoplay() {
+  function prepareAutoplay(opts) {
+    opts = opts || {};
     if (!session.autoplayEnabled) return Promise.resolve([]);
-    if (session.autoplay.length >= 8) return Promise.resolve(session.autoplay);
-    if (autoplayInflight) return autoplayInflight;
+    if (!opts.force && session.autoplay.length >= 8) return Promise.resolve(session.autoplay);
+
+    // Recover from a hung prepare so Autoplay never sits on "Preparing…" forever.
+    if (autoplayInflight && !opts.force) {
+      if (autoplayInflightAt && Date.now() - autoplayInflightAt < AUTOPLAY_PREP_MS) {
+        return autoplayInflight;
+      }
+      autoplayInflight = null;
+      autoplayInflightAt = 0;
+    }
 
     var SQ = window.SDMusicSmartQueue;
     if (!SQ || typeof SQ.refill !== "function") {
-      // Fallback: made-for-you
       var local = [];
       try {
         if (SQ && typeof SQ.madeForYou === "function") local = SQ.madeForYou(16) || [];
       } catch (e) {}
       appendAutoplay(local);
+      if (!session.autoplay.length && SQ && typeof SQ.emergencyPlayable === "function") {
+        return SQ.emergencyPlayable(session.now, 16).then(function (tracks) {
+          appendAutoplay(tracks);
+          return session.autoplay;
+        });
+      }
       return Promise.resolve(session.autoplay);
     }
 
     var seed = session.now || (session.history.length && session.history[session.history.length - 1]) || null;
-    autoplayInflight = SQ.refill({
-      state: {
+    var myGen = ++autoplayPrepGen;
+    autoplayInflightAt = Date.now();
+
+    function timed(promise, ms, fallback) {
+      return new Promise(function (resolve) {
+        var settled = false;
+        function done(v) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(v);
+        }
+        var timer = setTimeout(function () {
+          try {
+            var fb = typeof fallback === "function" ? fallback() : fallback;
+            Promise.resolve(fb).then(done, function () {
+              done([]);
+            });
+          } catch (e) {
+            done([]);
+          }
+        }, ms);
+        Promise.resolve(promise).then(done, function () {
+          try {
+            var fb2 = typeof fallback === "function" ? fallback() : fallback;
+            Promise.resolve(fb2).then(done, function () {
+              done([]);
+            });
+          } catch (e2) {
+            done([]);
+          }
+        });
+      });
+    }
+
+    autoplayInflight = timed(
+      SQ.refill({
+        force: !!opts.force,
+        state: {
+          source: "listen",
+          id: seed && trackId(seed),
+          albumId:
+            (seed && seed.albumId) ||
+            (session.source && session.source.albumId) ||
+            (session.source && session.source.type === "album" && session.source.id) ||
+            "",
+          artistId: (seed && seed.artistId) || (session.source && session.source.artistId) || "",
+          title: seed && seed.title,
+          subtitle: (seed && ((seed.artists && seed.artists.join(", ")) || seed.subtitle)) || "",
+          entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
+        },
+        queue: [],
+        track: seed,
         source: "listen",
-        id: seed && trackId(seed),
-        albumId: (seed && seed.albumId) || (session.source && session.source.albumId) || (session.source && session.source.type === "album" && session.source.id) || "",
-        artistId: (seed && seed.artistId) || (session.source && session.source.artistId) || "",
-        title: seed && seed.title,
-        subtitle: (seed && ((seed.artists && seed.artists.join(", ")) || seed.subtitle)) || "",
         entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
-      },
-      queue: [],
-      track: seed,
-      source: "listen",
-      entryPath: (session.source && (session.source.entryPath || session.source.type)) || "listen",
-    })
-      .then(function (res) {
+        onBatch: function (batch) {
+          // Progressive fill — UI leaves "Preparing…" as soon as first candidates land.
+          appendAutoplay(batch);
+        },
+      }).then(function (res) {
         var q = (res && res.queue) || [];
         appendAutoplay(q);
+        return session.autoplay;
+      }),
+      AUTOPLAY_PREP_MS,
+      function () {
+        // Timeout path: force a fresh emergency ladder; never leave Autoplay empty.
+        if (typeof SQ.emergencyPlayable === "function") {
+          return SQ.emergencyPlayable(seed, 20).then(function (tracks) {
+            appendAutoplay(tracks);
+            if (!session.autoplay.length && typeof SQ.homeTracks === "function") {
+              return SQ.homeTracks(24).then(function (home) {
+                appendAutoplay(home);
+                return session.autoplay;
+              });
+            }
+            return session.autoplay;
+          });
+        }
+        return session.autoplay;
+      }
+    )
+      .then(function (list) {
+        if ((!list || !list.length) && typeof SQ.emergencyPlayable === "function") {
+          return SQ.emergencyPlayable(seed, 20).then(function (tracks) {
+            appendAutoplay(tracks);
+            return session.autoplay;
+          });
+        }
         return session.autoplay;
       })
       .catch(function () {
         return session.autoplay;
       })
       .finally(function () {
-        autoplayInflight = null;
+        if (autoplayPrepGen === myGen) {
+          autoplayInflight = null;
+          autoplayInflightAt = 0;
+        }
       });
     return autoplayInflight;
   }
@@ -28827,7 +28918,11 @@
   if (window.SDMusicSmartQueue) return;
 
   var LISTEN = "/api/music/listen";
+  var FETCH_MS = 10000;
+  var REFILL_MS = 12000;
   var inflight = null;
+  var inflightStartedAt = 0;
+  var inflightGen = 0;
   var lastFlow = null;
 
   function escQ(s) {
@@ -28850,11 +28945,52 @@
     return out;
   }
 
-  function fetchJson(url) {
-    return fetch(url, { credentials: "same-origin" }).then(function (r) {
-      if (!r.ok) throw new Error("http_" + r.status);
-      return r.json();
+  function withTimeout(promise, ms, fallback) {
+    ms = ms == null ? FETCH_MS : ms;
+    return new Promise(function (resolve) {
+      var settled = false;
+      function done(v) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(v);
+      }
+      function useFallback() {
+        try {
+          var fb = typeof fallback === "function" ? fallback() : fallback;
+          Promise.resolve(fb).then(done, function () {
+            done([]);
+          });
+        } catch (e) {
+          done([]);
+        }
+      }
+      var timer = setTimeout(useFallback, ms);
+      Promise.resolve(promise).then(done, useFallback);
     });
+  }
+
+  function fetchJson(url, timeoutMs) {
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = null;
+    var ms = timeoutMs == null ? FETCH_MS : timeoutMs;
+    if (ctrl) {
+      timer = setTimeout(function () {
+        try {
+          ctrl.abort();
+        } catch (e) {}
+      }, ms);
+    }
+    var opts = { credentials: "same-origin" };
+    if (ctrl) opts.signal = ctrl.signal;
+    return fetch(url, opts)
+      .then(function (r) {
+        if (!r.ok) throw new Error("http_" + r.status);
+        return r.json();
+      })
+      .finally(function () {
+        if (timer) clearTimeout(timer);
+      });
   }
 
   function tasteRank(items, opts) {
@@ -29169,6 +29305,92 @@
       });
   }
 
+  /** Related artists via artist search (name variants / "similar to"). */
+  function relatedArtistTracks(artistName, limit) {
+    var name = String(artistName || "").trim();
+    if (!name) return Promise.resolve([]);
+    var queries = [
+      name + " songs",
+      "artists like " + name,
+      name + " type beat",
+      name + " radio",
+    ];
+    return Promise.all(
+      queries.map(function (q) {
+        return withTimeout(searchSimilar(q, 10), FETCH_MS, []);
+      })
+    ).then(function (groups) {
+      var acc = [];
+      groups.forEach(function (g) {
+        acc = acc.concat(g || []);
+      });
+      return dedupeTracks(acc).slice(0, limit || 24);
+    });
+  }
+
+  /** Pull playable tracks from Listen home shelves (trending / charts / mixes). */
+  function homeTracks(limit) {
+    return fetchJson(LISTEN + "/home")
+      .then(function (data) {
+        var out = [];
+        ((data && data.shelves) || []).forEach(function (sh) {
+          ((sh && sh.items) || []).forEach(function (it) {
+            if (it && it.videoId) out.push(it);
+          });
+        });
+        return dedupeTracks(out).slice(0, limit || 30);
+      })
+      .catch(function () {
+        return [];
+      });
+  }
+
+  /** Last-resort playable search ladder — never return empty if Listen search works. */
+  function emergencyPlayable(seed, limit) {
+    var title = (seed && seed.title) || "";
+    var artist =
+      (seed && seed.artists && seed.artists[0]) ||
+      (seed && seed.subtitle) ||
+      "";
+    var ladder = [
+      [title, artist].filter(Boolean).join(" "),
+      artist,
+      artist ? artist + " hits" : "",
+      "new music friday",
+      "today's top hits",
+      "hip hop hits",
+      "pop hits",
+      "trending music",
+    ].map(function (q) {
+      return String(q || "").trim();
+    }).filter(Boolean);
+    // De-dupe queries while preserving order
+    var seenQ = Object.create(null);
+    ladder = ladder.filter(function (q) {
+      var k = q.toLowerCase();
+      if (seenQ[k]) return false;
+      seenQ[k] = 1;
+      return true;
+    });
+
+    var acc = [];
+    var i = 0;
+    function next() {
+      if (acc.length >= (limit || 16) || i >= ladder.length) {
+        return Promise.resolve(dedupeTracks(acc).slice(0, limit || 24));
+      }
+      var q = ladder[i++];
+      return withTimeout(searchSimilar(q, 12), FETCH_MS, []).then(function (tracks) {
+        acc = acc.concat(tracks || []);
+        if (acc.length >= (limit || 16)) {
+          return dedupeTracks(acc).slice(0, limit || 24);
+        }
+        return next();
+      });
+    }
+    return next();
+  }
+
   function dialNeighbors(state) {
     var P = window.StepDaddyMusicPlayer;
     var inst = P && P._instance;
@@ -29195,6 +29417,9 @@
   /**
    * Build a refill queue for the current play context.
    * Returns Promise<{ queue, flow, source }>
+   * Never dead-ends: most-relevant → least (album → artist → related → watch →
+   * home/trending → search → made-for-you → library → emergency ladder).
+   * Each step times out so a hung Listen call cannot strand Autoplay on "Preparing…".
    */
   function refill(ctx) {
     ctx = ctx || {};
@@ -29209,10 +29434,20 @@
       artists: state.subtitle ? [state.subtitle] : [],
     };
     var existing = dedupeTracks(ctx.queue || state.queue || []);
+    var onBatch = typeof ctx.onBatch === "function" ? ctx.onBatch : null;
+    var force = !!ctx.force;
 
-    if (inflight) return inflight;
+    // Abandon hung shared inflight so Autoplay can recover.
+    if (inflight && !force && inflightStartedAt && Date.now() - inflightStartedAt < REFILL_MS) {
+      return inflight;
+    }
+    if (inflight && !force) {
+      inflight = null;
+      inflightStartedAt = 0;
+    }
 
     var flowSteps = [];
+    var emitted = Object.create(null);
 
     function finish(queue, flow) {
       queue = dedupeTracks(existing.concat(queue || []));
@@ -29234,92 +29469,139 @@
       return { queue: queue, flow: flow, source: source };
     }
 
+    function emitProgress(acc) {
+      if (!onBatch) return;
+      var fresh = (acc || []).filter(function (t) {
+        var id = trackId(t);
+        if (!id || emitted[id]) return false;
+        // Don't emit current as an autoplay candidate
+        if (id === (trackId(current) || String(state.id || ""))) return false;
+        emitted[id] = 1;
+        return true;
+      });
+      if (!fresh.length) return;
+      try {
+        onBatch(fresh);
+      } catch (e) {}
+    }
+
+    function step(name, acc, need, runner) {
+      if (acc.length >= need) return Promise.resolve(acc);
+      flowSteps.push(name);
+      return withTimeout(Promise.resolve().then(runner), FETCH_MS, []).then(function (tracks) {
+        var next = dedupeTracks(acc.concat(tracks || []));
+        emitProgress(next);
+        return next;
+      });
+    }
+
     if (source === "radio") {
+      var radioGen = ++inflightGen;
+      inflightStartedAt = Date.now();
       inflight = Promise.resolve(finish(dialNeighbors(state), "radio-dial-neighbors")).finally(function () {
-        inflight = null;
+        if (inflightGen === radioGen) {
+          inflight = null;
+          inflightStartedAt = 0;
+        }
       });
       return inflight;
     }
 
-    // Listen / library / home / search flows
+    var artistName =
+      (current.artists && current.artists[0]) || current.subtitle || state.subtitle || "";
+    var artistId = current.artistId || state.artistId || "";
+    var albumId = current.albumId || state.albumId || "";
+    var vid = current.videoId || (state.source === "listen" ? state.id : "") || "";
+
+    // Listen / library / home / search flows — most relevant → least
     var chain = Promise.resolve([]);
 
-    // 1) Same album
-    if (current.albumId || state.albumId) {
-      chain = chain.then(function (acc) {
-        if (acc.length >= 8) return acc;
-        flowSteps.push("album");
-        return albumTracks(current.albumId || state.albumId).then(function (tracks) {
-          return acc.concat(tracks);
-        });
-      });
-    }
-
-    // 2) Artist radio
     chain = chain.then(function (acc) {
-      if (acc.length >= 12) return acc;
-      var aid = current.artistId || state.artistId;
-      var aname = (current.artists && current.artists[0]) || current.subtitle || state.subtitle || "";
-      if (!aid && !aname) return acc;
-      flowSteps.push("artist-radio");
-      return artistRadio(aid, aname).then(function (tracks) {
-        return acc.concat(tracks);
+      return step("album", acc, 8, function () {
+        return albumId ? albumTracks(albumId) : [];
       });
     });
 
-    // 3) Watch next / related
     chain = chain.then(function (acc) {
-      if (acc.length >= 16) return acc;
-      var vid = current.videoId || (state.source === "listen" ? state.id : "");
-      if (!vid) return acc;
-      flowSteps.push("watch-next");
-      return watchNext(vid, 25).then(function (tracks) {
-        return acc.concat(tracks);
+      return step("artist-radio", acc, 12, function () {
+        if (!artistId && !artistName) return [];
+        return artistRadio(artistId, artistName);
       });
     });
 
-    // 4) Made-for-you / taste
     chain = chain.then(function (acc) {
-      if (acc.length >= 20) return acc;
-      flowSteps.push("made-for-you");
-      return acc.concat(madeForYou(20));
-    });
-
-    // 5) Search similar (title + artist)
-    chain = chain.then(function (acc) {
-      if (acc.length >= 8) return acc;
-      var q = [current.title || state.title, (current.artists && current.artists[0]) || state.subtitle]
-        .filter(Boolean)
-        .join(" ");
-      if (!q) return acc;
-      flowSteps.push("search-similar");
-      return searchSimilar(q, 12).then(function (tracks) {
-        return acc.concat(tracks);
+      return step("related-artists", acc, 16, function () {
+        return relatedArtistTracks(artistName, 20);
       });
     });
 
-    // 6) Library liked as last resort
     chain = chain.then(function (acc) {
-      if (acc.length >= 4) return acc;
-      flowSteps.push("library-liked");
-      try {
-        if (window.SDMusicLibrary) return acc.concat(window.SDMusicLibrary.snapshot().liked || []);
-      } catch (e) {}
-      return acc;
+      return step("watch-next", acc, 18, function () {
+        return vid ? watchNext(vid, 25) : [];
+      });
     });
 
-    inflight = chain
-      .then(function (acc) {
+    chain = chain.then(function (acc) {
+      return step("home-trending", acc, 20, function () {
+        return homeTracks(28);
+      });
+    });
+
+    chain = chain.then(function (acc) {
+      return step("made-for-you", acc, 22, function () {
+        return madeForYou(20);
+      });
+    });
+
+    chain = chain.then(function (acc) {
+      return step("search-similar", acc, 12, function () {
+        var q = [current.title || state.title, artistName].filter(Boolean).join(" ");
+        return q ? searchSimilar(q, 12) : [];
+      });
+    });
+
+    chain = chain.then(function (acc) {
+      return step("library-liked", acc, 6, function () {
+        try {
+          if (window.SDMusicLibrary) return window.SDMusicLibrary.snapshot().liked || [];
+        } catch (e) {}
+        return [];
+      });
+    });
+
+    // Absolute floor: keep searching until something playable lands
+    chain = chain.then(function (acc) {
+      return step("emergency-ladder", acc, 4, function () {
+        return emergencyPlayable(current, 20);
+      });
+    });
+
+    var myGen = ++inflightGen;
+    inflightStartedAt = Date.now();
+    inflight = withTimeout(
+      chain.then(function (acc) {
         var ranked = tasteRank(dedupeTracks(acc), {
-          entryPath: (ctx.entryPath || state.entryPath || source || "listen"),
+          entryPath: ctx.entryPath || state.entryPath || source || "listen",
           seedItems: current ? [current] : [],
         });
+        emitProgress(ranked);
         var flow = flowSteps.join(">") || "empty";
         return finish(ranked, flow);
-      })
-      .finally(function () {
+      }),
+      REFILL_MS,
+      function () {
+        flowSteps.push("refill-timeout");
+        return withTimeout(emergencyPlayable(current, 16), FETCH_MS, []).then(function (tracks) {
+          emitProgress(tracks);
+          return finish(tracks, flowSteps.join(">") || "refill-timeout");
+        });
+      }
+    ).finally(function () {
+      if (inflightGen === myGen) {
         inflight = null;
-      });
+        inflightStartedAt = 0;
+      }
+    });
     return inflight;
   }
 
@@ -29522,6 +29804,8 @@
     wrapListenHandlers: wrapListenHandlers,
     artistEcosystem: artistEcosystem,
     madeForYou: madeForYou,
+    homeTracks: homeTracks,
+    emergencyPlayable: emergencyPlayable,
     last: function () {
       return lastFlow;
     },
@@ -32722,13 +33006,26 @@
         if (cached) return Promise.resolve(cached);
       }
       if (streamInflight[videoId]) return streamInflight[videoId];
-      streamInflight[videoId] = api("/stream/" + encodeURIComponent(videoId))
+      var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      var abortTimer = setTimeout(function () {
+        try {
+          if (ctrl) ctrl.abort();
+        } catch (eAb) {}
+      }, opts.timeoutMs || 12000);
+      var fetchOpts = { credentials: "same-origin" };
+      if (ctrl) fetchOpts.signal = ctrl.signal;
+      streamInflight[videoId] = fetch(API + "/stream/" + encodeURIComponent(videoId), fetchOpts)
+        .then(function (r) {
+          if (!r.ok) throw new Error("listen_api_" + r.status);
+          return r.json();
+        })
         .then(function (data) {
           if (!data || !data.stream_url) throw new Error("no_stream");
           cachePut(videoId, data);
           return data;
         })
         .finally(function () {
+          clearTimeout(abortTimer);
           delete streamInflight[videoId];
         });
       return streamInflight[videoId];
@@ -32743,7 +33040,8 @@
         if (typeof u.prepareAutoplay === "function") {
           var sess = typeof u.getSession === "function" ? u.getSession() : null;
           var upLen = (sess && sess.upNext && sess.upNext.length) || 0;
-          if (upLen <= 2) u.prepareAutoplay();
+          var apLen = (sess && sess.autoplay && sess.autoplay.length) || 0;
+          if (upLen <= 2 || apLen < 6) u.prepareAutoplay();
         }
       } catch (ePrep) {}
       var ids = [];
@@ -32761,7 +33059,8 @@
       }
       ids.forEach(function (id) {
         if (cacheGet(id) || streamInflight[id]) return;
-        fetchStream(id).catch(function () {});
+        // Prewarm must never block current/next ready playback.
+        fetchStream(id, { timeoutMs: 10000 }).catch(function () {});
       });
     }
 
@@ -32769,7 +33068,8 @@
       var u = UQ();
       // dir: -1 prev, 1 next, 0 ended
       if (u && (dir === 1 || dir === 0)) {
-        function playResolved(res) {
+        function playResolved(res, depth) {
+          depth = depth || 0;
           if (!res) return;
           if (res.ended) {
             try {
@@ -32784,9 +33084,28 @@
             return;
           }
           if (res.waiting) {
+            // Never sit on Preparing forever: retry prepare with timeout, then advance.
+            if (depth > 6) {
+              try {
+                u.prepareAutoplay({ force: true }).then(function () {
+                  var last = u.advanceNext({ fromEnded: dir === 0 });
+                  if (last && last.track) playTrackObject(last.track);
+                });
+              } catch (eForce) {}
+              return;
+            }
             var waiters = [];
             try {
-              if (typeof u.prepareAutoplay === "function") waiters.push(u.prepareAutoplay());
+              if (typeof u.prepareAutoplay === "function") {
+                waiters.push(
+                  Promise.race([
+                    u.prepareAutoplay(depth > 2 ? { force: true } : {}),
+                    new Promise(function (resolve) {
+                      setTimeout(resolve, 10000);
+                    }),
+                  ])
+                );
+              }
             } catch (e) {}
             try {
               var sess = typeof u.getSession === "function" ? u.getSession() : null;
@@ -32797,7 +33116,7 @@
                     var timer = setInterval(function () {
                       n += 1;
                       var s = u.getSession();
-                      if (!s || !s.ecosystemPending || (s.upNext && s.upNext.length) || n > 48) {
+                      if (!s || !s.ecosystemPending || (s.upNext && s.upNext.length) || n > 40) {
                         clearInterval(timer);
                         resolve();
                       }
@@ -32809,7 +33128,8 @@
             Promise.all(waiters.length ? waiters : [Promise.resolve()]).then(function () {
               var again = u.advanceNext({ fromEnded: dir === 0 });
               if (again && again.track) playTrackObject(again.track);
-              else if (again && again.ended) playResolved(again);
+              else if (again && again.ended) playResolved(again, depth + 1);
+              else if (again && again.waiting) playResolved(again, depth + 1);
             });
             return;
           }
@@ -32931,10 +33251,21 @@
             P._instance.audio.currentTime = 0;
           } catch (eR) {}
         }
-        // Keep warming while current track plays
+        // Keep warming while current track plays — continuous Autoplay refill
         setTimeout(function () {
           prewarmUpcoming(2);
         }, 1200);
+        setTimeout(function () {
+          try {
+            if (u && typeof u.prepareAutoplay === "function") u.prepareAutoplay();
+          } catch (eTop) {}
+          prewarmUpcoming(2);
+        }, 5000);
+        setTimeout(function () {
+          try {
+            if (u && typeof u.prepareAutoplay === "function") u.prepareAutoplay();
+          } catch (eTop2) {}
+        }, 15000);
         syncFlatFromUnified();
       } catch (e) {
         try {
@@ -32955,9 +33286,10 @@
             var skipped = UQ().skipUnavailable();
             if (skipped && skipped.track) playTrackObject(skipped.track);
             else if (skipped && skipped.waiting) {
-              UQ().prepareAutoplay().then(function () {
+              UQ().prepareAutoplay({ force: true }).then(function () {
                 var again = UQ().advanceNext({ fromEnded: true });
                 if (again && again.track) playTrackObject(again.track);
+                else if (again && again.waiting) smartNav(1);
               });
             }
           } else {

@@ -470,7 +470,7 @@
           });
         });
       } else {
-        html += "<li><small>Preparing suggestions…</small></li>";
+        html += "<li><small>Finding more…</small></li>";
       }
       html += "</ul></section>";
     } else if (this.state.source === "listen" && this.state.queue && this.state.queue.length) {
